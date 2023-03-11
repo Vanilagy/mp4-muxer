@@ -35,6 +35,7 @@ module.exports = {
 		"no-warning-comments": ["warn", { "terms": ["todo", "fixme", "temp"] }],
 		"no-fallthrough": ["off"],
 		"max-len": ["warn", { "code": 120, "tabWidth": 4 }],
-		"no-undef": ["off"]
+		"no-undef": ["off"],
+		"no-mixed-spaces-and-tabs": ["error", "smart-tabs"]
 	}
 };

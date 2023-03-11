@@ -1,0 +1,46 @@
+<script src="../build/mp4-muxer.js"></script>
+
+<script type="module">
+	let muxer = new Mp4Muxer();
+
+	let canvas = document.createElement('canvas');
+	canvas.width = 512;
+	canvas.height = 512;
+	let ctx = canvas.getContext('2d');
+
+	let encoder = new VideoEncoder({
+		output: (chunk, meta) => {
+			console.log(chunk, meta);
+			muxer.addVideoChunk(chunk, meta);
+		},
+		error: (e) => console.error(e)
+	});
+	encoder.configure({
+		codec: 'avc1.4d002a',
+		width: 512,
+		height: 512,
+		bitrate: 1e6,
+		framerate: 10,
+	});
+
+	for (let i = 0; i < 10; i++) {
+		ctx.fillStyle = ['red', 'green', 'blue', 'yellow'][Math.floor(Math.random() * 4)];
+		ctx.fillRect(Math.random() * 512, Math.random() * 512, Math.random() * 512, Math.random() * 512);
+
+		let frame = new VideoFrame(canvas, { timestamp: 100000 * i });
+		encoder.encode(frame);
+	}
+
+	await encoder.flush();
+
+	let buffer = muxer.finalize();
+	console.log(buffer);
+
+	function download(blob, filename) {
+		const a = document.createElement('a');
+		a.href = URL.createObjectURL(blob);
+		a.download = filename;
+		a.click();
+	}
+	download(new Blob([buffer]), 'test.mp4');
+</script>
