@@ -1,0 +1,22 @@
+{
+  "name": "mp4-muxer",
+  "version": "1.0.0",
+  "description": "todo",
+  "main": "index.js",
+  "scripts": {
+    "watch": "node build.mjs"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@types/dom-webcodecs": "^0.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^18.15.0",
+    "@typescript-eslint/eslint-plugin": "^5.54.1",
+    "@typescript-eslint/parser": "^5.54.1",
+    "esbuild": "^0.17.11",
+    "eslint": "^8.36.0",
+    "typescript": "^4.9.5"
+  }
+}
