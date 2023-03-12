@@ -1,11 +1,19 @@
 <script src="../build/mp4-muxer.js"></script>
 
 <script type="module">
-	let muxer = new Mp4Muxer();
+	const width = 1280;
+	const height = 720;
+
+	let muxer = new Mp4Muxer({
+		video: {
+			width,
+			height
+		}
+	});
 
 	let canvas = document.createElement('canvas');
-	canvas.width = 512;
-	canvas.height = 512;
+	canvas.width = width;
+	canvas.height = height;
 	let ctx = canvas.getContext('2d');
 
 	let encoder = new VideoEncoder({
@@ -17,15 +25,15 @@
 	});
 	encoder.configure({
 		codec: 'avc1.4d002a',
-		width: 512,
-		height: 512,
+		width: width,
+		height: height,
 		bitrate: 1e6,
 		framerate: 10,
 	});
 
 	for (let i = 0; i < 100; i++) {
 		ctx.fillStyle = ['red', 'lime', 'blue', 'yellow'][Math.floor(Math.random() * 4)];
-		ctx.fillRect(Math.random() * 512, Math.random() * 512, Math.random() * 512, Math.random() * 512);
+		ctx.fillRect(Math.random() * width, Math.random() * height, Math.random() * width, Math.random() * height);
 
 		let frame = new VideoFrame(canvas, { timestamp: 100000 * i });
 		encoder.encode(frame);
@@ -42,5 +50,5 @@
 		a.download = filename;
 		a.click();
 	}
-	//download(new Blob([buffer]), 'test.mp4');
+	download(new Blob([buffer]), 'test.mp4');
 </script>

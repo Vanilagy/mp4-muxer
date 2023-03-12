@@ -1,27 +1,46 @@
-const TIMESTAMP_OFFSET = 2082848400; // Seconds between Jan 1 1904 and Jan 1 1970
+const TIMESTAMP_OFFSET = 2_082_848_400; // Seconds between Jan 1 1904 and Jan 1 1970
+const MAX_CHUNK_LENGTH = 500_000; // In microseconds
+const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'permissive'] as const;
+
+interface SampleRecord {
+	timestamp: number,
+	size: number
+}
+interface Chunk {
+	startTimestamp: number,
+	sampleData: Uint8Array[],
+	sampleCount: number,
+	offset?: number
+}
+
+interface Mp4MuxerOptions {
+	target: 'buffer',
+	video?: {
+		width: number,
+		height: number
+		frameRate?: number
+	},
+	audio?: {
+		numberOfChannels: number,
+		sampleRate: number,
+		bitDepth?: number
+	},
+	firstTimestampBehavior?: typeof FIRST_TIMESTAMP_BEHAVIORS[number]
+}
 
 class Mp4Muxer {
+	#options: Mp4MuxerOptions;
 	#target: WriteTarget;
 	#mdat: Box;
 	#videoDecoderConfig: Uint8Array;
+	#videoSampleRecords: SampleRecord[] = [];
+	#chunks: Chunk[] = [];
+	#currentVideoChunk: Chunk;
 
-	constructor() {
+	constructor(options: Mp4MuxerOptions) {
+		this.#options = options;
 		this.#target = new ArrayBufferWriteTarget();
-	}
 
-	#chunks: Uint8Array[] = [];
-	addVideoChunk(chunk: EncodedVideoChunk, meta: EncodedVideoChunkMetadata) {
-		let data = new Uint8Array(chunk.byteLength);
-		chunk.copyTo(data);
-		this.#chunks.push(data);
-
-		if (meta?.decoderConfig?.description) {
-			this.#videoDecoderConfig = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
-			console.log(this.#videoDecoderConfig);
-		}
-	}
-
-	finalize() {
 		this.#target.writeBox({
 			type: BoxType.FileType,
 			contents: new Uint8Array([
@@ -29,8 +48,82 @@ class Mp4Muxer {
 				0x00, 0x00, 0x00, 0x00, // Minor version 0
 				0x69, 0x73, 0x6f, 0x6d, // isom
 				0x61, 0x76, 0x63, 0x31, // avc1
-				0x6d, 0x70, 0x34, 0x32  // mp42
+				0x6d, 0x70, 0x34, 0x32, // mp42
+				0x6d, 0x70, 0x34, 0x31  // mp41
 			])
+		});
+
+		this.#mdat = {
+			type: BoxType.MovieData
+		};
+		this.#target.writeBox(this.#mdat);
+	}
+
+	addVideoChunk(sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata) {
+		if (!this.#currentVideoChunk || sample.timestamp - this.#currentVideoChunk.startTimestamp >= MAX_CHUNK_LENGTH) {
+			if (this.#currentVideoChunk) this.#writeChunk(this.#currentVideoChunk);
+			this.#currentVideoChunk = { startTimestamp: sample.timestamp, sampleData: [], sampleCount: 0 };
+		}
+
+		let data = new Uint8Array(sample.byteLength);
+		sample.copyTo(data);
+
+		this.#currentVideoChunk.sampleData.push(data);
+		this.#currentVideoChunk.sampleCount++;
+
+		if (meta.decoderConfig?.description) {
+			this.#videoDecoderConfig = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
+		}
+
+		this.#videoSampleRecords.push({
+			timestamp: sample.timestamp / 1e6,
+			size: data.byteLength
+		});
+	}
+
+	#writeChunk(chunk: Chunk) {
+		chunk.offset = this.#target.pos;
+		for (let bytes of chunk.sampleData) this.#target.write(bytes);
+		chunk.sampleData = null;
+
+		this.#chunks.push(chunk);
+	}
+
+	finalize() {
+		this.#writeChunk(this.#currentVideoChunk);
+
+		let mdatPos = this.#target.offsets.get(this.#mdat);
+		let mdatSize = this.#target.pos - mdatPos;
+		this.#mdat.size = mdatSize;
+		this.#target.patchBox(this.#mdat);
+
+		this.#writeMovieBox();
+
+		let buffer = (this.#target as ArrayBufferWriteTarget).finalize();
+		return buffer;
+	}
+
+	#writeMovieBox() {
+		const timescale = 1000;
+
+		let current: SampleRecord[] = [];
+		let entries: { sampleCount: number, sampleDelta: number }[] = [];
+		for (let sample of this.#videoSampleRecords) {
+			current.push(sample);
+
+			if (current.length === 1) continue;
+
+			let referenceDelta = timestampToUnits(current[1].timestamp - current[0].timestamp, timescale);
+			let newDelta = timestampToUnits(sample.timestamp - current[current.length - 2].timestamp, timescale);
+			if (newDelta !== referenceDelta) {
+				entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
+				current = current.slice(-2);
+			}
+		}
+
+		entries.push({
+			sampleCount: current.length,
+			sampleDelta: Math.floor(timestampToUnits(current[1]?.timestamp ?? current[0].timestamp, timescale))
 		});
 
 		let timeToSampleBox: Box = {
@@ -38,9 +131,8 @@ class Mp4Muxer {
 			contents: new Uint8Array([
 				0x00, // Version
 				0x00, 0x00, 0x00, // Flags
-				u32(1), // Entry count
-				u32(100),
-				u32(100),
+				u32(entries.length),
+				...entries.flatMap(x => [u32(x.sampleCount), u32(x.sampleDelta)])
 			].flat())
 		};
 
@@ -54,15 +146,28 @@ class Mp4Muxer {
 			].flat())
 		};
 
+		let compactlyCodedChunks = this.#chunks.reduce<{
+			firstChunk: number,
+			samplesPerChunk: number
+		}[]>((acc, next, index) => {
+			if (acc.length === 0 || acc[acc.length - 1].samplesPerChunk !== next.sampleCount) return [
+				...acc,
+				{ firstChunk: index + 1, samplesPerChunk: next.sampleCount }
+			];
+			return acc;
+		}, []);
+
 		let sampleToChunkBox: Box = {
 			type: BoxType.SampleToChunk,
 			contents: new Uint8Array([
 				0x00, // Version
 				0x00, 0x00, 0x00, // Flags
-				u32(1), // Entry count
-				u32(1), // First chunk
-				u32(100), // Samples per chunk
-				u32(1), // Sample description index
+				u32(compactlyCodedChunks.length), // Entry count
+				...compactlyCodedChunks.flatMap(x => [
+					u32(x.firstChunk),
+					u32(x.samplesPerChunk),
+					u32(1) // Sample description index
+				]),
 			].flat())
 		};
 
@@ -72,8 +177,8 @@ class Mp4Muxer {
 				0x00, // Version
 				0x00, 0x00, 0x00, // Flags
 				u32(0), // Sample size
-				u32(100), // Sample count
-				this.#chunks.flatMap(x => u32(x.byteLength))
+				u32(this.#videoSampleRecords.length), // Sample count
+				this.#videoSampleRecords.flatMap(x => u32(x.size))
 			].flat())
 		};
 
@@ -82,169 +187,177 @@ class Mp4Muxer {
 			contents: new Uint8Array([
 				0x00, // Version
 				0x00, 0x00, 0x00, // Flags,
-				u32(1), // Entry count
-				u32(0), // Chunk offset PLACEHOLDER
+				u32(this.#chunks.length), // Entry count
+				this.#chunks.flatMap(x => u32(x.offset))
 			].flat())
 		};
 
-		this.#target.writeBox({
-			type: BoxType.Movie,
+		let duration = timestampToUnits(
+			this.#videoSampleRecords[this.#videoSampleRecords.length - 1].timestamp,
+			timescale
+		);
+
+		let mediaHeaderBox: Box = {
+			type: BoxType.MediaHeader,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
+				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
+				u32(timescale),
+				u32(duration),
+				0b01010101, 0b11000100, // Language ("und", undetermined)
+				0x00, 0x00 // Pre-defined
+			].flat())
+		};
+
+		let handlerReferenceBox: Box = {
+			type: BoxType.HandlerReference,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(0), // Pre-defined
+				ascii('vide'), // Component subtype
+				Array(12).fill(0), // Reserved
+				ascii('Video track', true)
+			].flat())
+		};
+
+		let mediaInformationHeaderBox: Box = {
+			type: BoxType.VideoMediaInformationHeader,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x01, // Flags
+				0x00, 0x00, // Graphics mode
+				0x00, 0x00, // Opcolor R
+				0x00, 0x00, // Opcolor G
+				0x00, 0x00, // Opcolor B
+			])
+		};
+
+		let dataInformationBox: Box = {
+			type: BoxType.DataInformation,
 			children: [{
-				type: BoxType.MovieHeader,
+				type: BoxType.DataReference,
 				contents: new Uint8Array([
 					0x00, // Version
 					0x00, 0x00, 0x00, // Flags
-					u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
-					u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
-					u32(1000), // Time scale
-					u32(10000), // Duration
-					fixed32(1.0), // Preferred rate
-					fixed16(1.0), // Preferred volume
-					Array(10).fill(0), // Reserved
-					[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
-					Array(24).fill(0), // Pre-defined
-					u32(2) // Next track ID
-				].flat())
-			}, {
-				type: BoxType.Track,
+					u32(1) // Entry count
+				].flat()),
 				children: [{
-					type: BoxType.TrackHeader,
+					type: 'url ',
 					contents: new Uint8Array([
-						0x00, // Version
-						0x00, 0x00, 0x03, // Flags (enabled + in movie)
-						u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
-						u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
-						u32(1), // Track ID
-						u32(0), // Reserved
-						u32(10000), // Duration
-						Array(8).fill(0), // Reserved
-						0x00, 0x00, // Layer
-						0x00, 0x00, // Alternate group
-						fixed16(0), // Volume
-						0x00, 0x00, // Reserved
-						[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
-						fixed32(512), // Track width
-						fixed32(512) // Track height
+						0x00, 0x00, 0x00, // Flags
+						ascii('', true)
 					].flat())
-				}, {
-					type: BoxType.Media,
-					children: [{
-						type: BoxType.MediaHeader,
-						contents: new Uint8Array([
-							0x00, // Version
-							0x00, 0x00, 0x00, // Flags
-							u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
-							u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
-							u32(1000), // Time scale
-							u32(10000), // Duration
-							0b01010101, 0b11000100, // Language ("und", undetermined)
-							0x00, 0x00 // Pre-defined
-						].flat())
-					}, {
-						type: BoxType.HandlerReference,
-						contents: new Uint8Array([
-							0x00, // Version
-							0x00, 0x00, 0x00, // Flags
-							u32(0), // Pre-defined
-							ascii('vide'), // Component subtype
-							Array(12).fill(0), // Reserved
-							ascii('Video track', true)
-						].flat())
-					}, {
-						type: BoxType.MediaInformation,
-						children: [{
-							type: BoxType.VideoMediaInformationHeader,
-							contents: new Uint8Array([
-								0x00, // Version
-								0x00, 0x00, 0x01, // Flags
-								0x00, 0x00, // Graphics mode
-								0x00, 0x00, // Opcolor R
-								0x00, 0x00, // Opcolor G
-								0x00, 0x00, // Opcolor B
-							])
-						}, {
-							type: BoxType.DataInformation,
-							children: [{
-								type: BoxType.DataReference,
-								contents: new Uint8Array([
-									0x00, // Version
-									0x00, 0x00, 0x00, // Flags
-									u32(1) // Entry count
-								].flat()),
-								children: [{
-									type: 'url ',
-									contents: new Uint8Array([
-										0x00, 0x00, 0x00, // Flags
-										ascii('', true)
-									].flat())
-								}]
-							}]
-						}, {
-							type: BoxType.SampleTable,
-							children: [{
-								type: BoxType.SampleDescription,
-								contents: new Uint8Array([
-									0x00, // Version
-									0x00, 0x00, 0x00, // Flags
-									u32(1) // Entry count
-								].flat()),
-								children: [{
-									type: 'avc1',
-									contents: new Uint8Array([
-										Array(6).fill(0), // Reserved
-										0x00, 0x00, // Data reference index
-										0x00, 0x00, // Pre-defined
-										0x00, 0x00, // Reserved
-										Array(12).fill(0), // Pre-defined
-										u16(512), // Width
-										u16(512), // Height
-										u32(0x00480000), // Horizontal resolution
-										u32(0x00480000), // Vertical resolution
-										u32(0), // Reserved
-										u16(1), // Frame count
-										Array(32).fill(0), // Compressor name
-										u16(0x0018), // Depth
-										i16(0xffff), // Pre-defined
-									].flat()),
-									children: [{
-										type: 'avcC',
-										contents: this.#videoDecoderConfig
-									}]
-								}]
-							}, timeToSampleBox, syncSampleBox, sampleToChunkBox, sampleSizeBox, chunkOffsetBox]
-						}]
-					}]
 				}]
 			}]
-		});
-
-		this.#mdat = {
-			type: BoxType.MovieData
 		};
-		this.#target.writeBox(this.#mdat);
 
-		chunkOffsetBox.contents = new Uint8Array([
-			0x00, // Version
-			0x00, 0x00, 0x00, // Flags,
-			u32(1), // Entry count
-			u32(this.#target.pos), // Chunk offset
-		].flat());
-		let endPos = this.#target.pos;
-		this.#target.pos = this.#target.offsets.get(chunkOffsetBox);
-		this.#target.writeBox(chunkOffsetBox);
-		this.#target.pos = endPos;
+		let sampleDescriptionBox = {
+			type: BoxType.SampleDescription,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(1) // Entry count
+			].flat()),
+			children: [{
+				type: 'avc1',
+				contents: new Uint8Array([
+					Array(6).fill(0), // Reserved
+					0x00, 0x00, // Data reference index
+					0x00, 0x00, // Pre-defined
+					0x00, 0x00, // Reserved
+					Array(12).fill(0), // Pre-defined
+					u16(this.#options.video.width), // Width
+					u16(this.#options.video.height), // Height
+					u32(0x00480000), // Horizontal resolution
+					u32(0x00480000), // Vertical resolution
+					u32(0), // Reserved
+					u16(1), // Frame count
+					Array(32).fill(0), // Compressor name
+					u16(0x0018), // Depth
+					i16(0xffff), // Pre-defined
+				].flat()),
+				children: [{
+					type: 'avcC',
+					contents: this.#videoDecoderConfig
+				}]
+			}]
+		};
 
-		for (let chunk of this.#chunks) this.#target.write(chunk);
+		let sampleTableBox: Box = {
+			type: BoxType.SampleTable,
+			children: [
+				sampleDescriptionBox,
+				timeToSampleBox,
+				syncSampleBox,
+				sampleToChunkBox,
+				sampleSizeBox,
+				chunkOffsetBox
+			]
+		};
 
-		let mdatPos = this.#target.offsets.get(this.#mdat);
-		let mdatSize = this.#target.pos - mdatPos;
-		endPos = this.#target.pos;
-		this.#target.pos = mdatPos;
-		this.#target.writeU32(mdatSize);
-		this.#target.pos = endPos;
+		let mediaInformationBox: Box = {
+			type: BoxType.MediaInformation,
+			children: [mediaInformationHeaderBox, dataInformationBox, sampleTableBox]
+		};
 
-		let buffer = (this.#target as ArrayBufferWriteTarget).finalize();
-		return buffer;
+		let mediaBox: Box = {
+			type: BoxType.Media,
+			children: [mediaHeaderBox, handlerReferenceBox, mediaInformationBox]
+		};
+
+		let trackHeaderBox: Box = {
+			type: BoxType.TrackHeader,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x03, // Flags (enabled + in movie)
+				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
+				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
+				u32(1), // Track ID
+				u32(0), // Reserved
+				u32(duration), // Duration
+				Array(8).fill(0), // Reserved
+				0x00, 0x00, // Layer
+				0x00, 0x00, // Alternate group
+				fixed16(0), // Volume
+				0x00, 0x00, // Reserved
+				[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
+				fixed32(this.#options.video.width), // Track width
+				fixed32(this.#options.video.height) // Track height
+			].flat())
+		};
+
+		let trackBox: Box = {
+			type: BoxType.Track,
+			children: [trackHeaderBox, mediaBox]
+		};
+
+		let movieHeaderBox: Box = {
+			type: BoxType.MovieHeader,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
+				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
+				u32(timescale),
+				u32(duration),
+				fixed32(1.0), // Preferred rate
+				fixed16(1.0), // Preferred volume
+				Array(10).fill(0), // Reserved
+				[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
+				Array(24).fill(0), // Pre-defined
+				u32(2) // Next track ID
+			].flat())
+		};
+
+		let movieBox: Box = {
+			type: BoxType.Movie,
+			children: [movieHeaderBox, trackBox]
+		};
+
+		this.#target.writeBox(movieBox);
 	}
 }
 
@@ -286,16 +399,20 @@ const fixed32 = (value: number) => {
 };
 
 const ascii = (text: string, nullTerminated = false) => {
-	let result = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
-	if (nullTerminated) result.push(0x00);
+	let bytes = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+	if (nullTerminated) bytes.push(0x00);
+	return bytes;
+};
 
-	return result;
+const timestampToUnits = (timestamp: number, timescale: number) => {
+	return Math.floor(timestamp * timescale);
 };
 
 interface Box {
 	type: string,
 	contents?: Uint8Array,
-	children?: Box[]
+	children?: Box[],
+	size?: number
 }
 
 enum BoxType {
@@ -357,7 +474,7 @@ export abstract class WriteTarget {
 		this.offsets.set(box, this.pos);
 
 		if (box.contents && !box.children) {
-			this.writeU32(box.contents.byteLength + 8);
+			this.writeU32(box.size ?? box.contents.byteLength + 8);
 			this.writeAscii(box.type);
 			this.write(box.contents);
 		} else {
@@ -369,11 +486,18 @@ export abstract class WriteTarget {
 			if (box.children) for (let child of box.children) this.writeBox(child);
 
 			let endPos = this.pos;
-			let size = endPos - startPos;
+			let size = box.size ?? endPos - startPos;
 			this.pos = startPos;
 			this.writeU32(size);
 			this.pos = endPos;
 		}
+	}
+
+	patchBox(box: Box) {
+		let endPos = this.pos;
+		this.pos = this.offsets.get(box);
+		this.writeBox(box);
+		this.pos = endPos;
 	}
 }
 
