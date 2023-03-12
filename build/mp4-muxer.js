@@ -44,19 +44,34 @@ var Mp4Muxer = (() => {
     WriteTarget: () => WriteTarget,
     default: () => main_default
   });
-  var _target, _mdat;
+  var TIMESTAMP_OFFSET = 2082848400;
+  var _target, _mdat, _videoDecoderConfig, _chunks;
   var Mp4Muxer = class {
     constructor() {
       __privateAdd(this, _target, void 0);
       __privateAdd(this, _mdat, void 0);
+      __privateAdd(this, _videoDecoderConfig, void 0);
+      __privateAdd(this, _chunks, []);
       __privateSet(this, _target, new ArrayBufferWriteTarget());
+    }
+    addVideoChunk(chunk, meta) {
+      var _a;
+      let data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      __privateGet(this, _chunks).push(data);
+      if ((_a = meta == null ? void 0 : meta.decoderConfig) == null ? void 0 : _a.description) {
+        __privateSet(this, _videoDecoderConfig, new Uint8Array(meta.decoderConfig.description));
+        console.log(__privateGet(this, _videoDecoderConfig));
+      }
+    }
+    finalize() {
       __privateGet(this, _target).writeBox({
         type: "ftyp" /* FileType */,
         contents: new Uint8Array([
-          105,
-          115,
-          111,
           109,
+          112,
+          52,
+          50,
           // mp42
           0,
           0,
@@ -66,8 +81,8 @@ var Mp4Muxer = (() => {
           105,
           115,
           111,
-          50,
-          // iso2
+          109,
+          // isom
           97,
           118,
           99,
@@ -76,10 +91,90 @@ var Mp4Muxer = (() => {
           109,
           112,
           52,
-          49
+          50
           // mp42
         ])
       });
+      let timeToSampleBox = {
+        type: "stts" /* TimeToSample */,
+        contents: new Uint8Array([
+          0,
+          // Version
+          0,
+          0,
+          0,
+          // Flags
+          u32(1),
+          // Entry count
+          u32(100),
+          u32(100)
+        ].flat())
+      };
+      let syncSampleBox = {
+        type: "stss" /* SyncSample */,
+        contents: new Uint8Array([
+          0,
+          // Version
+          0,
+          0,
+          0,
+          // Flags
+          u32(1),
+          // Entry count
+          u32(1)
+          // Sample number
+        ].flat())
+      };
+      let sampleToChunkBox = {
+        type: "stsc" /* SampleToChunk */,
+        contents: new Uint8Array([
+          0,
+          // Version
+          0,
+          0,
+          0,
+          // Flags
+          u32(1),
+          // Entry count
+          u32(1),
+          // First chunk
+          u32(100),
+          // Samples per chunk
+          u32(1)
+          // Sample description index
+        ].flat())
+      };
+      let sampleSizeBox = {
+        type: "stsz" /* SampleSize */,
+        contents: new Uint8Array([
+          0,
+          // Version
+          0,
+          0,
+          0,
+          // Flags
+          u32(0),
+          // Sample size
+          u32(100),
+          // Sample count
+          __privateGet(this, _chunks).flatMap((x) => u32(x.byteLength))
+        ].flat())
+      };
+      let chunkOffsetBox = {
+        type: "stco" /* ChunkOffset */,
+        contents: new Uint8Array([
+          0,
+          // Version
+          0,
+          0,
+          0,
+          // Flags,
+          u32(1),
+          // Entry count
+          u32(0)
+          // Chunk offset PLACEHOLDER
+        ].flat())
+      };
       __privateGet(this, _target).writeBox({
         type: "moov" /* Movie */,
         children: [{
@@ -91,13 +186,13 @@ var Mp4Muxer = (() => {
             0,
             0,
             // Flags
-            u32(Math.floor(Date.now() / 1e3) + __pow(2, 31)),
-            // Creation time (seconds since January 1, 1904)
-            u32(Math.floor(Date.now() / 1e3) + __pow(2, 31)),
+            u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
+            // Creation time
+            u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
             // Modification time
             u32(1e3),
             // Time scale
-            u32(1e3),
+            u32(1e4),
             // Duration
             fixed32(1),
             // Preferred rate
@@ -105,21 +200,10 @@ var Mp4Muxer = (() => {
             // Preferred volume
             Array(10).fill(0),
             // Reserved
-            [
-              1,
-              0,
-              0,
-              // Matrix structure
-              0,
-              1,
-              0,
-              0,
-              0,
-              1
-            ].flatMap(fixed32),
+            [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
             Array(24).fill(0),
             // Pre-defined
-            u32(1)
+            u32(2)
             // Next track ID
           ].flat())
         }, {
@@ -133,15 +217,15 @@ var Mp4Muxer = (() => {
               0,
               3,
               // Flags (enabled + in movie)
-              u32(Math.floor(Date.now() / 1e3) + __pow(2, 31)),
-              // Creation time (seconds since January 1, 1904)
-              u32(Math.floor(Date.now() / 1e3) + __pow(2, 31)),
+              u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
+              // Creation time
+              u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
               // Modification time
               u32(1),
               // Track ID
               u32(0),
               // Reserved
-              u32(1e3),
+              u32(1e4),
               // Duration
               Array(8).fill(0),
               // Reserved
@@ -151,22 +235,12 @@ var Mp4Muxer = (() => {
               0,
               0,
               // Alternate group
-              fixed16(1),
+              fixed16(0),
+              // Volume
               0,
               0,
               // Reserved
-              [
-                1,
-                0,
-                0,
-                // Matrix structure
-                0,
-                1,
-                0,
-                0,
-                0,
-                1
-              ].flatMap(fixed32),
+              [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
               fixed32(512),
               // Track width
               fixed32(512)
@@ -183,17 +257,17 @@ var Mp4Muxer = (() => {
                 0,
                 0,
                 // Flags
-                u32(Math.floor(Date.now() / 1e3) + __pow(2, 31)),
-                // Creation time (seconds since January 1, 1904)
-                u32(Math.floor(Date.now() / 1e3) + __pow(2, 31)),
+                u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
+                // Creation time
+                u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
                 // Modification time
                 u32(1e3),
                 // Time scale
-                u32(1e3),
+                u32(1e4),
                 // Duration
-                0,
-                0,
-                // Language
+                85,
+                196,
+                // Language ("und", undetermined)
                 0,
                 0
                 // Pre-defined
@@ -213,8 +287,7 @@ var Mp4Muxer = (() => {
                 // Component subtype
                 Array(12).fill(0),
                 // Reserved
-                ascii("Video track"),
-                0
+                ascii("Video track", true)
               ].flat())
             }, {
               type: "minf" /* MediaInformation */,
@@ -240,6 +313,31 @@ var Mp4Muxer = (() => {
                   0
                   // Opcolor B
                 ])
+              }, {
+                type: "dinf" /* DataInformation */,
+                children: [{
+                  type: "dref" /* DataReference */,
+                  contents: new Uint8Array([
+                    0,
+                    // Version
+                    0,
+                    0,
+                    0,
+                    // Flags
+                    u32(1)
+                    // Entry count
+                  ].flat()),
+                  children: [{
+                    type: "url ",
+                    contents: new Uint8Array([
+                      0,
+                      0,
+                      0,
+                      // Flags
+                      ascii("", true)
+                    ].flat())
+                  }]
+                }]
               }, {
                 type: "stbl" /* SampleTable */,
                 children: [{
@@ -288,9 +386,13 @@ var Mp4Muxer = (() => {
                       // Depth
                       i16(65535)
                       // Pre-defined
-                    ].flat())
+                    ].flat()),
+                    children: [{
+                      type: "avcC",
+                      contents: __privateGet(this, _videoDecoderConfig)
+                    }]
                   }]
-                }]
+                }, timeToSampleBox, syncSampleBox, sampleToChunkBox, sampleSizeBox, chunkOffsetBox]
               }]
             }]
           }]
@@ -300,16 +402,27 @@ var Mp4Muxer = (() => {
         type: "mdat" /* MovieData */
       });
       __privateGet(this, _target).writeBox(__privateGet(this, _mdat));
-    }
-    addVideoChunk(chunk) {
-      let data = new Uint8Array(chunk.byteLength);
-      chunk.copyTo(data);
-      __privateGet(this, _target).write(data);
-    }
-    finalize() {
+      chunkOffsetBox.contents = new Uint8Array([
+        0,
+        // Version
+        0,
+        0,
+        0,
+        // Flags,
+        u32(1),
+        // Entry count
+        u32(__privateGet(this, _target).pos)
+        // Chunk offset
+      ].flat());
+      let endPos = __privateGet(this, _target).pos;
+      __privateGet(this, _target).pos = __privateGet(this, _target).offsets.get(chunkOffsetBox);
+      __privateGet(this, _target).writeBox(chunkOffsetBox);
+      __privateGet(this, _target).pos = endPos;
+      for (let chunk of __privateGet(this, _chunks))
+        __privateGet(this, _target).write(chunk);
       let mdatPos = __privateGet(this, _target).offsets.get(__privateGet(this, _mdat));
       let mdatSize = __privateGet(this, _target).pos - mdatPos;
-      let endPos = __privateGet(this, _target).pos;
+      endPos = __privateGet(this, _target).pos;
       __privateGet(this, _target).pos = mdatPos;
       __privateGet(this, _target).writeU32(mdatSize);
       __privateGet(this, _target).pos = endPos;
@@ -319,6 +432,8 @@ var Mp4Muxer = (() => {
   };
   _target = new WeakMap();
   _mdat = new WeakMap();
+  _videoDecoderConfig = new WeakMap();
+  _chunks = new WeakMap();
   var u16 = (value) => {
     let bytes = new Uint8Array(2);
     let view = new DataView(bytes.buffer);
@@ -351,8 +466,11 @@ var Mp4Muxer = (() => {
     view.setUint16(2, value << 16, false);
     return [...bytes];
   };
-  var ascii = (text) => {
-    return Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+  var ascii = (text, nullTerminated = false) => {
+    let result = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+    if (nullTerminated)
+      result.push(0);
+    return result;
   };
   var _helper, _helperView;
   var WriteTarget = class {

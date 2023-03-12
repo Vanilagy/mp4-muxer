@@ -1,20 +1,91 @@
+const TIMESTAMP_OFFSET = 2082848400; // Seconds between Jan 1 1904 and Jan 1 1970
+
 class Mp4Muxer {
 	#target: WriteTarget;
 	#mdat: Box;
+	#videoDecoderConfig: Uint8Array;
 
 	constructor() {
 		this.#target = new ArrayBufferWriteTarget();
+	}
 
+	#chunks: Uint8Array[] = [];
+	addVideoChunk(chunk: EncodedVideoChunk, meta: EncodedVideoChunkMetadata) {
+		let data = new Uint8Array(chunk.byteLength);
+		chunk.copyTo(data);
+		this.#chunks.push(data);
+
+		if (meta?.decoderConfig?.description) {
+			this.#videoDecoderConfig = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
+			console.log(this.#videoDecoderConfig);
+		}
+	}
+
+	finalize() {
 		this.#target.writeBox({
 			type: BoxType.FileType,
 			contents: new Uint8Array([
-				0x69, 0x73, 0x6f, 0x6d, // mp42
+				0x6d, 0x70, 0x34, 0x32, // mp42
 				0x00, 0x00, 0x00, 0x00, // Minor version 0
-				0x69, 0x73, 0x6f, 0x32, // iso2
+				0x69, 0x73, 0x6f, 0x6d, // isom
 				0x61, 0x76, 0x63, 0x31, // avc1
-				0x6d, 0x70, 0x34, 0x31  // mp42
+				0x6d, 0x70, 0x34, 0x32  // mp42
 			])
 		});
+
+		let timeToSampleBox: Box = {
+			type: BoxType.TimeToSample,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(1), // Entry count
+				u32(100),
+				u32(100),
+			].flat())
+		};
+
+		let syncSampleBox: Box = {
+			type: BoxType.SyncSample,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(1), // Entry count
+				u32(1), // Sample number
+			].flat())
+		};
+
+		let sampleToChunkBox: Box = {
+			type: BoxType.SampleToChunk,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(1), // Entry count
+				u32(1), // First chunk
+				u32(100), // Samples per chunk
+				u32(1), // Sample description index
+			].flat())
+		};
+
+		let sampleSizeBox: Box = {
+			type: BoxType.SampleSize,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags
+				u32(0), // Sample size
+				u32(100), // Sample count
+				this.#chunks.flatMap(x => u32(x.byteLength))
+			].flat())
+		};
+
+		let chunkOffsetBox: Box = {
+			type: BoxType.ChunkOffset,
+			contents: new Uint8Array([
+				0x00, // Version
+				0x00, 0x00, 0x00, // Flags,
+				u32(1), // Entry count
+				u32(0), // Chunk offset PLACEHOLDER
+			].flat())
+		};
 
 		this.#target.writeBox({
 			type: BoxType.Movie,
@@ -23,18 +94,16 @@ class Mp4Muxer {
 				contents: new Uint8Array([
 					0x00, // Version
 					0x00, 0x00, 0x00, // Flags
-					u32(Math.floor(Date.now() / 1000) + 2**31), // Creation time (seconds since January 1, 1904)
-					u32(Math.floor(Date.now() / 1000) + 2**31), // Modification time
+					u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
+					u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
 					u32(1000), // Time scale
-					u32(1000), // Duration
+					u32(10000), // Duration
 					fixed32(1.0), // Preferred rate
 					fixed16(1.0), // Preferred volume
 					Array(10).fill(0), // Reserved
-					[1, 0, 0, // Matrix structure
-					 0, 1, 0,
-					 0, 0, 1].flatMap(fixed32),
+					[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
 					Array(24).fill(0), // Pre-defined
-					u32(1) // Next track ID
+					u32(2) // Next track ID
 				].flat())
 			}, {
 				type: BoxType.Track,
@@ -43,19 +112,17 @@ class Mp4Muxer {
 					contents: new Uint8Array([
 						0x00, // Version
 						0x00, 0x00, 0x03, // Flags (enabled + in movie)
-						u32(Math.floor(Date.now() / 1000) + 2**31), // Creation time (seconds since January 1, 1904)
-						u32(Math.floor(Date.now() / 1000) + 2**31), // Modification time
+						u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
+						u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
 						u32(1), // Track ID
 						u32(0), // Reserved
-						u32(1000), // Duration
+						u32(10000), // Duration
 						Array(8).fill(0), // Reserved
 						0x00, 0x00, // Layer
 						0x00, 0x00, // Alternate group
-						fixed16(1.0),
+						fixed16(0), // Volume
 						0x00, 0x00, // Reserved
-						[1, 0, 0, // Matrix structure
-						 0, 1, 0,
-						 0, 0, 1].flatMap(fixed32),
+						[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
 						fixed32(512), // Track width
 						fixed32(512) // Track height
 					].flat())
@@ -66,11 +133,11 @@ class Mp4Muxer {
 						contents: new Uint8Array([
 							0x00, // Version
 							0x00, 0x00, 0x00, // Flags
-							u32(Math.floor(Date.now() / 1000) + 2**31), // Creation time (seconds since January 1, 1904)
-							u32(Math.floor(Date.now() / 1000) + 2**31), // Modification time
+							u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
+							u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
 							u32(1000), // Time scale
-							u32(1000), // Duration
-							0x00, 0x00, // Language
+							u32(10000), // Duration
+							0b01010101, 0b11000100, // Language ("und", undetermined)
 							0x00, 0x00 // Pre-defined
 						].flat())
 					}, {
@@ -81,7 +148,7 @@ class Mp4Muxer {
 							u32(0), // Pre-defined
 							ascii('vide'), // Component subtype
 							Array(12).fill(0), // Reserved
-							ascii('Video track'), 0x00
+							ascii('Video track', true)
 						].flat())
 					}, {
 						type: BoxType.MediaInformation,
@@ -95,6 +162,23 @@ class Mp4Muxer {
 								0x00, 0x00, // Opcolor G
 								0x00, 0x00, // Opcolor B
 							])
+						}, {
+							type: BoxType.DataInformation,
+							children: [{
+								type: BoxType.DataReference,
+								contents: new Uint8Array([
+									0x00, // Version
+									0x00, 0x00, 0x00, // Flags
+									u32(1) // Entry count
+								].flat()),
+								children: [{
+									type: 'url ',
+									contents: new Uint8Array([
+										0x00, 0x00, 0x00, // Flags
+										ascii('', true)
+									].flat())
+								}]
+							}]
 						}, {
 							type: BoxType.SampleTable,
 							children: [{
@@ -121,9 +205,13 @@ class Mp4Muxer {
 										Array(32).fill(0), // Compressor name
 										u16(0x0018), // Depth
 										i16(0xffff), // Pre-defined
-									].flat())
+									].flat()),
+									children: [{
+										type: 'avcC',
+										contents: this.#videoDecoderConfig
+									}]
 								}]
-							}]
+							}, timeToSampleBox, syncSampleBox, sampleToChunkBox, sampleSizeBox, chunkOffsetBox]
 						}]
 					}]
 				}]
@@ -134,18 +222,23 @@ class Mp4Muxer {
 			type: BoxType.MovieData
 		};
 		this.#target.writeBox(this.#mdat);
-	}
 
-	addVideoChunk(chunk: EncodedVideoChunk/*, meta: EncodedVideoChunkMetadata*/) {
-		let data = new Uint8Array(chunk.byteLength);
-		chunk.copyTo(data);
-		this.#target.write(data);
-	}
+		chunkOffsetBox.contents = new Uint8Array([
+			0x00, // Version
+			0x00, 0x00, 0x00, // Flags,
+			u32(1), // Entry count
+			u32(this.#target.pos), // Chunk offset
+		].flat());
+		let endPos = this.#target.pos;
+		this.#target.pos = this.#target.offsets.get(chunkOffsetBox);
+		this.#target.writeBox(chunkOffsetBox);
+		this.#target.pos = endPos;
 
-	finalize() {
+		for (let chunk of this.#chunks) this.#target.write(chunk);
+
 		let mdatPos = this.#target.offsets.get(this.#mdat);
 		let mdatSize = this.#target.pos - mdatPos;
-		let endPos = this.#target.pos;
+		endPos = this.#target.pos;
 		this.#target.pos = mdatPos;
 		this.#target.writeU32(mdatSize);
 		this.#target.pos = endPos;
@@ -192,8 +285,11 @@ const fixed32 = (value: number) => {
 	return [...bytes];
 };
 
-const ascii = (text: string) => {
-	return Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+const ascii = (text: string, nullTerminated = false) => {
+	let result = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+	if (nullTerminated) result.push(0x00);
+
+	return result;
 };
 
 interface Box {
@@ -213,8 +309,15 @@ enum BoxType {
 	HandlerReference = 'hdlr',
 	MediaInformation = 'minf',
 	VideoMediaInformationHeader = 'vmhd',
+	DataInformation = 'dinf',
+	DataReference = 'dref',
 	SampleTable = 'stbl',
 	SampleDescription = 'stsd',
+	TimeToSample = 'stts',
+	SyncSample = 'stss',
+	SampleToChunk = 'stsc',
+	SampleSize = 'stsz',
+	ChunkOffset = 'stco',
 	MovieData = 'mdat'
 }
 
