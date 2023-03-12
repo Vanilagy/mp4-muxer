@@ -100,7 +100,8 @@ var Mp4Muxer = (() => {
         ])
       });
       __privateSet(this, _mdat, {
-        type: "mdat" /* MovieData */
+        type: "mdat" /* MovieData */,
+        largeSize: true
       });
       __privateGet(this, _target).writeBox(__privateGet(this, _mdat));
     }
@@ -168,7 +169,9 @@ var Mp4Muxer = (() => {
     }
     entries.push({
       sampleCount: current.length,
-      sampleDelta: Math.floor(timestampToUnits((_b = (_a = current[1]) == null ? void 0 : _a.timestamp) != null ? _b : current[0].timestamp, timescale))
+      sampleDelta: Math.floor(
+        timestampToUnits(((_b = (_a = current[1]) == null ? void 0 : _a.timestamp) != null ? _b : current[0].timestamp) - current[0].timestamp, timescale)
+      )
     });
     let timeToSampleBox = {
       type: "stts" /* TimeToSample */,
@@ -555,6 +558,11 @@ var Mp4Muxer = (() => {
       __privateGet(this, _helperView).setUint32(0, value, false);
       this.write(__privateGet(this, _helper).subarray(0, 4));
     }
+    writeU64(value) {
+      __privateGet(this, _helperView).setUint32(0, Math.floor(value / __pow(2, 32)), false);
+      __privateGet(this, _helperView).setUint32(4, value, false);
+      this.write(__privateGet(this, _helper).subarray(0, 8));
+    }
     writeAscii(text) {
       for (let i = 0; i < text.length; i++) {
         __privateGet(this, _helperView).setUint8(i % 8, text.charCodeAt(i));
@@ -569,13 +577,11 @@ var Mp4Muxer = (() => {
       var _a, _b;
       this.offsets.set(box, this.pos);
       if (box.contents && !box.children) {
-        this.writeU32((_a = box.size) != null ? _a : box.contents.byteLength + 8);
-        this.writeAscii(box.type);
+        this.writeBoxHeader(box, (_a = box.size) != null ? _a : box.contents.byteLength + 8);
         this.write(box.contents);
       } else {
         let startPos = this.pos;
-        this.pos += 4;
-        this.writeAscii(box.type);
+        this.writeBoxHeader(box, 0);
         if (box.contents)
           this.write(box.contents);
         if (box.children)
@@ -584,9 +590,15 @@ var Mp4Muxer = (() => {
         let endPos = this.pos;
         let size = (_b = box.size) != null ? _b : endPos - startPos;
         this.pos = startPos;
-        this.writeU32(size);
+        this.writeBoxHeader(box, size);
         this.pos = endPos;
       }
+    }
+    writeBoxHeader(box, size) {
+      this.writeU32(box.largeSize ? 1 : size);
+      this.writeAscii(box.type);
+      if (box.largeSize)
+        this.writeU64(size);
     }
     patchBox(box) {
       let endPos = this.pos;

@@ -54,7 +54,8 @@ class Mp4Muxer {
 		});
 
 		this.#mdat = {
-			type: BoxType.MovieData
+			type: BoxType.MovieData,
+			largeSize: true
 		};
 		this.#target.writeBox(this.#mdat);
 	}
@@ -123,7 +124,9 @@ class Mp4Muxer {
 
 		entries.push({
 			sampleCount: current.length,
-			sampleDelta: Math.floor(timestampToUnits(current[1]?.timestamp ?? current[0].timestamp, timescale))
+			sampleDelta: Math.floor(
+				timestampToUnits((current[1]?.timestamp ?? current[0].timestamp) - current[0].timestamp, timescale)
+			)
 		});
 
 		let timeToSampleBox: Box = {
@@ -412,7 +415,8 @@ interface Box {
 	type: string,
 	contents?: Uint8Array,
 	children?: Box[],
-	size?: number
+	size?: number,
+	largeSize?: boolean
 }
 
 enum BoxType {
@@ -459,6 +463,12 @@ export abstract class WriteTarget {
 		this.write(this.#helper.subarray(0, 4));
 	}
 
+	writeU64(value: number) {
+		this.#helperView.setUint32(0, Math.floor(value / 2**32), false);
+		this.#helperView.setUint32(4, value, false);
+		this.write(this.#helper.subarray(0, 8));
+	}
+
 	writeAscii(text: string) {
 		for (let i = 0; i < text.length; i++) {
 			this.#helperView.setUint8(i % 8, text.charCodeAt(i));
@@ -474,13 +484,11 @@ export abstract class WriteTarget {
 		this.offsets.set(box, this.pos);
 
 		if (box.contents && !box.children) {
-			this.writeU32(box.size ?? box.contents.byteLength + 8);
-			this.writeAscii(box.type);
+			this.writeBoxHeader(box, box.size ?? box.contents.byteLength + 8);
 			this.write(box.contents);
 		} else {
 			let startPos = this.pos;
-			this.pos += 4;
-			this.writeAscii(box.type);
+			this.writeBoxHeader(box, 0);
 
 			if (box.contents) this.write(box.contents);
 			if (box.children) for (let child of box.children) this.writeBox(child);
@@ -488,9 +496,15 @@ export abstract class WriteTarget {
 			let endPos = this.pos;
 			let size = box.size ?? endPos - startPos;
 			this.pos = startPos;
-			this.writeU32(size);
+			this.writeBoxHeader(box, size);
 			this.pos = endPos;
 		}
+	}
+
+	writeBoxHeader(box: Box, size: number) {
+		this.writeU32(box.largeSize ? 1 : size);
+		this.writeAscii(box.type);
+		if (box.largeSize) this.writeU64(size);
 	}
 
 	patchBox(box: Box) {
