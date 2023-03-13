@@ -9,7 +9,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@types/dom-webcodecs": "^0.1.6"
+    "@types/dom-webcodecs": "^0.1.6",
+    "@types/wicg-file-system-access": "^2020.9.5"
   },
   "devDependencies": {
     "@types/node": "^18.15.0",

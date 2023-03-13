@@ -5,6 +5,7 @@
 	const height = 720;
 
 	let muxer = new Mp4Muxer({
+		target: 'buffer',
 		video: {
 			width,
 			height

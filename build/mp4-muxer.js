@@ -3,8 +3,22 @@ var Mp4Muxer = (() => {
   var __defProp = Object.defineProperty;
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames = Object.getOwnPropertyNames;
+  var __getOwnPropSymbols = Object.getOwnPropertySymbols;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
+  var __propIsEnum = Object.prototype.propertyIsEnumerable;
   var __pow = Math.pow;
+  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __spreadValues = (a, b) => {
+    for (var prop in b ||= {})
+      if (__hasOwnProp.call(b, prop))
+        __defNormalProp(a, prop, b[prop]);
+    if (__getOwnPropSymbols)
+      for (var prop of __getOwnPropSymbols(b)) {
+        if (__propIsEnum.call(b, prop))
+          __defNormalProp(a, prop, b[prop]);
+      }
+    return a;
+  };
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
@@ -44,93 +58,372 @@ var Mp4Muxer = (() => {
   // src/main.ts
   var main_exports = {};
   __export(main_exports, {
-    ArrayBufferWriteTarget: () => ArrayBufferWriteTarget,
-    WriteTarget: () => WriteTarget,
     default: () => main_default
   });
+
+  // src/misc.ts
+  var u16 = (value) => {
+    let bytes = new Uint8Array(2);
+    let view = new DataView(bytes.buffer);
+    view.setUint16(0, value, false);
+    return [...bytes];
+  };
+  var i16 = (value) => {
+    let bytes = new Uint8Array(2);
+    let view = new DataView(bytes.buffer);
+    view.setInt16(0, value, false);
+    return [...bytes];
+  };
+  var u32 = (value) => {
+    let bytes = new Uint8Array(4);
+    let view = new DataView(bytes.buffer);
+    view.setUint32(0, value, false);
+    return [...bytes];
+  };
+  var fixed16 = (value) => {
+    let bytes = new Uint8Array(2);
+    let view = new DataView(bytes.buffer);
+    view.setUint8(0, value);
+    view.setUint8(1, value << 8);
+    return [...bytes];
+  };
+  var fixed32 = (value) => {
+    let bytes = new Uint8Array(4);
+    let view = new DataView(bytes.buffer);
+    view.setUint16(0, value, false);
+    view.setUint16(2, value << 16, false);
+    return [...bytes];
+  };
+  var ascii = (text, nullTerminated = false) => {
+    let bytes = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+    if (nullTerminated)
+      bytes.push(0);
+    return bytes;
+  };
+  var timestampToUnits = (timestamp, timescale) => {
+    return Math.floor(timestamp * timescale);
+  };
+  var last = (arr) => {
+    return arr && arr[arr.length - 1];
+  };
+
+  // src/write_target.ts
+  var _helper, _helperView;
+  var WriteTarget = class {
+    constructor() {
+      this.pos = 0;
+      __privateAdd(this, _helper, new Uint8Array(8));
+      __privateAdd(this, _helperView, new DataView(__privateGet(this, _helper).buffer));
+      /**
+       * Stores the position from the start of the file to where boxes elements have been written. This is used to
+       * rewrite/edit elements that were already added before, and to measure sizes of things.
+       */
+      this.offsets = /* @__PURE__ */ new WeakMap();
+    }
+    writeU32(value) {
+      __privateGet(this, _helperView).setUint32(0, value, false);
+      this.write(__privateGet(this, _helper).subarray(0, 4));
+    }
+    writeU64(value) {
+      __privateGet(this, _helperView).setUint32(0, Math.floor(value / __pow(2, 32)), false);
+      __privateGet(this, _helperView).setUint32(4, value, false);
+      this.write(__privateGet(this, _helper).subarray(0, 8));
+    }
+    writeAscii(text) {
+      for (let i = 0; i < text.length; i++) {
+        __privateGet(this, _helperView).setUint8(i % 8, text.charCodeAt(i));
+        if (i % 8 === 7)
+          this.write(__privateGet(this, _helper));
+      }
+      if (text.length % 8 !== 0) {
+        this.write(__privateGet(this, _helper).subarray(0, text.length % 8));
+      }
+    }
+    writeBox(box) {
+      var _a, _b;
+      this.offsets.set(box, this.pos);
+      if (box.contents && !box.children) {
+        this.writeBoxHeader(box, (_a = box.size) != null ? _a : box.contents.byteLength + 8);
+        this.write(box.contents);
+      } else {
+        let startPos = this.pos;
+        this.writeBoxHeader(box, 0);
+        if (box.contents)
+          this.write(box.contents);
+        if (box.children) {
+          for (let child of box.children)
+            if (child)
+              this.writeBox(child);
+        }
+        let endPos = this.pos;
+        let size = (_b = box.size) != null ? _b : endPos - startPos;
+        this.pos = startPos;
+        this.writeBoxHeader(box, size);
+        this.pos = endPos;
+      }
+    }
+    writeBoxHeader(box, size) {
+      this.writeU32(box.largeSize ? 1 : size);
+      this.writeAscii(box.type);
+      if (box.largeSize)
+        this.writeU64(size);
+    }
+    patchBox(box) {
+      let endPos = this.pos;
+      this.pos = this.offsets.get(box);
+      this.writeBox(box);
+      this.pos = endPos;
+    }
+  };
+  _helper = new WeakMap();
+  _helperView = new WeakMap();
+  var _buffer, _bytes;
+  var ArrayBufferWriteTarget = class extends WriteTarget {
+    constructor() {
+      super();
+      __privateAdd(this, _buffer, new ArrayBuffer(__pow(2, 16)));
+      __privateAdd(this, _bytes, new Uint8Array(__privateGet(this, _buffer)));
+    }
+    ensureSize(size) {
+      let newLength = __privateGet(this, _buffer).byteLength;
+      while (newLength < size)
+        newLength *= 2;
+      if (newLength === __privateGet(this, _buffer).byteLength)
+        return;
+      let newBuffer = new ArrayBuffer(newLength);
+      let newBytes = new Uint8Array(newBuffer);
+      newBytes.set(__privateGet(this, _bytes), 0);
+      __privateSet(this, _buffer, newBuffer);
+      __privateSet(this, _bytes, newBytes);
+    }
+    write(data) {
+      this.ensureSize(this.pos + data.byteLength);
+      __privateGet(this, _bytes).set(data, this.pos);
+      this.pos += data.byteLength;
+    }
+    seek(newPos) {
+      this.pos = newPos;
+    }
+    finalize() {
+      this.ensureSize(this.pos);
+      return __privateGet(this, _buffer).slice(0, this.pos);
+    }
+  };
+  _buffer = new WeakMap();
+  _bytes = new WeakMap();
+  var FILE_CHUNK_SIZE = __pow(2, 24);
+  var MAX_CHUNKS_AT_ONCE = 2;
+  var _stream, _chunks;
+  var FileSystemWritableFileStreamWriteTarget = class extends WriteTarget {
+    constructor(stream) {
+      super();
+      __privateAdd(this, _stream, void 0);
+      /**
+       * The file is divided up into fixed-size chunks, whose contents are first filled in RAM and then flushed to disk.
+       * A chunk is flushed to disk if all of its contents have been written.
+       */
+      __privateAdd(this, _chunks, []);
+      __privateSet(this, _stream, stream);
+    }
+    write(data) {
+      this.writeDataIntoChunks(data, this.pos);
+      this.flushChunks();
+      this.pos += data.byteLength;
+    }
+    writeDataIntoChunks(data, position) {
+      let chunkIndex = __privateGet(this, _chunks).findIndex((x) => x.start <= position && position < x.start + FILE_CHUNK_SIZE);
+      if (chunkIndex === -1)
+        chunkIndex = this.createChunk(position);
+      let chunk = __privateGet(this, _chunks)[chunkIndex];
+      let relativePosition = position - chunk.start;
+      let toWrite = data.subarray(0, Math.min(FILE_CHUNK_SIZE - relativePosition, data.byteLength));
+      chunk.data.set(toWrite, relativePosition);
+      let section = {
+        start: relativePosition,
+        end: relativePosition + toWrite.byteLength
+      };
+      insertSectionIntoFileChunk(chunk, section);
+      if (chunk.written[0].start === 0 && chunk.written[0].end === FILE_CHUNK_SIZE) {
+        chunk.shouldFlush = true;
+      }
+      if (__privateGet(this, _chunks).length > MAX_CHUNKS_AT_ONCE) {
+        for (let i = 0; i < __privateGet(this, _chunks).length - 1; i++) {
+          __privateGet(this, _chunks)[i].shouldFlush = true;
+        }
+        this.flushChunks();
+      }
+      if (toWrite.byteLength < data.byteLength) {
+        this.writeDataIntoChunks(data.subarray(toWrite.byteLength), position + toWrite.byteLength);
+      }
+    }
+    createChunk(includesPosition) {
+      let start = Math.floor(includesPosition / FILE_CHUNK_SIZE) * FILE_CHUNK_SIZE;
+      let chunk = {
+        start,
+        data: new Uint8Array(FILE_CHUNK_SIZE),
+        written: [],
+        shouldFlush: false
+      };
+      __privateGet(this, _chunks).push(chunk);
+      __privateGet(this, _chunks).sort((a, b) => a.start - b.start);
+      return __privateGet(this, _chunks).indexOf(chunk);
+    }
+    flushChunks(force = false) {
+      for (let i = 0; i < __privateGet(this, _chunks).length; i++) {
+        let chunk = __privateGet(this, _chunks)[i];
+        if (!chunk.shouldFlush && !force)
+          continue;
+        for (let section of chunk.written) {
+          __privateGet(this, _stream).write({
+            type: "write",
+            data: chunk.data.subarray(section.start, section.end),
+            position: chunk.start + section.start
+          });
+        }
+        __privateGet(this, _chunks).splice(i--, 1);
+      }
+    }
+    seek(newPos) {
+      this.pos = newPos;
+    }
+    finalize() {
+      this.flushChunks(true);
+    }
+  };
+  _stream = new WeakMap();
+  _chunks = new WeakMap();
+  var insertSectionIntoFileChunk = (chunk, section) => {
+    let low = 0;
+    let high = chunk.written.length - 1;
+    let index = -1;
+    while (low <= high) {
+      let mid = Math.floor(low + (high - low + 1) / 2);
+      if (chunk.written[mid].start <= section.start) {
+        low = mid + 1;
+        index = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    chunk.written.splice(index + 1, 0, section);
+    if (index === -1 || chunk.written[index].end < section.start)
+      index++;
+    while (index < chunk.written.length - 1 && chunk.written[index].end >= chunk.written[index + 1].start) {
+      chunk.written[index].end = Math.max(chunk.written[index].end, chunk.written[index + 1].end);
+      chunk.written.splice(index + 1, 1);
+    }
+  };
+  var _sections, _onFlush;
+  var StreamingWriteTarget = class extends WriteTarget {
+    constructor(onFlush) {
+      super();
+      __privateAdd(this, _sections, []);
+      __privateAdd(this, _onFlush, void 0);
+      __privateSet(this, _onFlush, onFlush);
+    }
+    write(data) {
+      __privateGet(this, _sections).push({
+        data: data.slice(),
+        start: this.pos
+      });
+      this.pos += data.byteLength;
+    }
+    seek(newPos) {
+      this.pos = newPos;
+    }
+    flush(done) {
+      if (__privateGet(this, _sections).length === 0)
+        return;
+      let chunks = [];
+      let sorted = [...__privateGet(this, _sections)].sort((a, b) => a.start - b.start);
+      chunks.push({
+        start: sorted[0].start,
+        size: sorted[0].data.byteLength
+      });
+      for (let i = 1; i < sorted.length; i++) {
+        let lastChunk = chunks[chunks.length - 1];
+        let section = sorted[i];
+        if (section.start <= lastChunk.start + lastChunk.size) {
+          lastChunk.size = Math.max(lastChunk.size, section.start + section.data.byteLength - lastChunk.start);
+        } else {
+          chunks.push({
+            start: section.start,
+            size: section.data.byteLength
+          });
+        }
+      }
+      for (let chunk of chunks) {
+        chunk.data = new Uint8Array(chunk.size);
+        for (let section of __privateGet(this, _sections)) {
+          if (chunk.start <= section.start && section.start < chunk.start + chunk.size) {
+            chunk.data.set(section.data, section.start - chunk.start);
+          }
+        }
+        let isLastFlush = done && chunk === chunks[chunks.length - 1];
+        __privateGet(this, _onFlush).call(this, chunk.data, chunk.start, isLastFlush);
+      }
+      __privateGet(this, _sections).length = 0;
+    }
+  };
+  _sections = new WeakMap();
+  _onFlush = new WeakMap();
+
+  // src/main.ts
   var TIMESTAMP_OFFSET = 2082848400;
   var MAX_CHUNK_LENGTH = 5e5;
-  var _options, _target, _mdat, _videoDecoderConfig, _videoSampleRecords, _chunks, _currentVideoChunk, _writeChunk, writeChunk_fn, _writeMovieBox, writeMovieBox_fn;
+  var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
+  var GLOBAL_TIMESCALE = 1e3;
+  var _options, _target, _mdat, _videoDecoderConfig, _videoTrack, _audioTrack, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _ensureNotFinalized, ensureNotFinalized_fn, _createMovieBox, createMovieBox_fn, _createTrackBox, createTrackBox_fn;
   var Mp4Muxer = class {
     constructor(options) {
-      __privateAdd(this, _writeChunk);
-      __privateAdd(this, _writeMovieBox);
+      __privateAdd(this, _validateOptions);
+      __privateAdd(this, _writeHeader);
+      __privateAdd(this, _prepareTracks);
+      __privateAdd(this, _addSampleToTrack);
+      __privateAdd(this, _writeCurrentChunk);
+      __privateAdd(this, _ensureNotFinalized);
+      __privateAdd(this, _createMovieBox);
+      __privateAdd(this, _createTrackBox);
       __privateAdd(this, _options, void 0);
       __privateAdd(this, _target, void 0);
       __privateAdd(this, _mdat, void 0);
       __privateAdd(this, _videoDecoderConfig, void 0);
-      __privateAdd(this, _videoSampleRecords, []);
-      __privateAdd(this, _chunks, []);
-      __privateAdd(this, _currentVideoChunk, void 0);
-      __privateSet(this, _options, options);
-      __privateSet(this, _target, new ArrayBufferWriteTarget());
-      __privateGet(this, _target).writeBox({
-        type: "ftyp" /* FileType */,
-        contents: new Uint8Array([
-          109,
-          112,
-          52,
-          50,
-          // mp42
-          0,
-          0,
-          0,
-          0,
-          // Minor version 0
-          105,
-          115,
-          111,
-          109,
-          // isom
-          97,
-          118,
-          99,
-          49,
-          // avc1
-          109,
-          112,
-          52,
-          50,
-          // mp42
-          109,
-          112,
-          52,
-          49
-          // mp41
-        ])
-      });
-      __privateSet(this, _mdat, {
-        type: "mdat" /* MovieData */,
-        largeSize: true
-      });
-      __privateGet(this, _target).writeBox(__privateGet(this, _mdat));
+      __privateAdd(this, _videoTrack, null);
+      __privateAdd(this, _audioTrack, null);
+      __privateAdd(this, _finalized, false);
+      __privateMethod(this, _validateOptions, validateOptions_fn).call(this, options);
+      __privateSet(this, _options, __spreadValues({
+        firstTimestampBehavior: "strict"
+      }, options));
+      if (options.target === "buffer") {
+        __privateSet(this, _target, new ArrayBufferWriteTarget());
+      } else if (options.target instanceof FileSystemWritableFileStream) {
+        __privateSet(this, _target, new FileSystemWritableFileStreamWriteTarget(options.target));
+      } else if (typeof options.target === "function") {
+        __privateSet(this, _target, new StreamingWriteTarget(options.target));
+      } else {
+        throw new Error(`Invalid target: ${options.target}`);
+      }
+      __privateMethod(this, _writeHeader, writeHeader_fn).call(this);
+      __privateMethod(this, _prepareTracks, prepareTracks_fn).call(this);
     }
     addVideoChunk(sample, meta) {
-      var _a;
-      if (!__privateGet(this, _currentVideoChunk) || sample.timestamp - __privateGet(this, _currentVideoChunk).startTimestamp >= MAX_CHUNK_LENGTH) {
-        if (__privateGet(this, _currentVideoChunk))
-          __privateMethod(this, _writeChunk, writeChunk_fn).call(this, __privateGet(this, _currentVideoChunk));
-        __privateSet(this, _currentVideoChunk, { startTimestamp: sample.timestamp, sampleData: [], sampleCount: 0 });
-      }
-      let data = new Uint8Array(sample.byteLength);
-      sample.copyTo(data);
-      __privateGet(this, _currentVideoChunk).sampleData.push(data);
-      __privateGet(this, _currentVideoChunk).sampleCount++;
-      if ((_a = meta.decoderConfig) == null ? void 0 : _a.description) {
-        __privateSet(this, _videoDecoderConfig, new Uint8Array(meta.decoderConfig.description));
-      }
-      __privateGet(this, _videoSampleRecords).push({
-        timestamp: sample.timestamp / 1e6,
-        size: data.byteLength
-      });
+      __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
+      if (!__privateGet(this, _options).video)
+        throw new Error("No video track declared.");
+      __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _videoTrack), sample, meta);
     }
     finalize() {
-      __privateMethod(this, _writeChunk, writeChunk_fn).call(this, __privateGet(this, _currentVideoChunk));
+      if (__privateGet(this, _videoTrack))
+        __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, __privateGet(this, _videoTrack));
+      if (__privateGet(this, _audioTrack))
+        __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, __privateGet(this, _audioTrack));
       let mdatPos = __privateGet(this, _target).offsets.get(__privateGet(this, _mdat));
       let mdatSize = __privateGet(this, _target).pos - mdatPos;
       __privateGet(this, _mdat).size = mdatSize;
       __privateGet(this, _target).patchBox(__privateGet(this, _mdat));
-      __privateMethod(this, _writeMovieBox, writeMovieBox_fn).call(this);
+      let movieBox = __privateMethod(this, _createMovieBox, createMovieBox_fn).call(this);
+      __privateGet(this, _target).writeBox(movieBox);
       let buffer = __privateGet(this, _target).finalize();
       return buffer;
     }
@@ -139,24 +432,161 @@ var Mp4Muxer = (() => {
   _target = new WeakMap();
   _mdat = new WeakMap();
   _videoDecoderConfig = new WeakMap();
-  _videoSampleRecords = new WeakMap();
-  _chunks = new WeakMap();
-  _currentVideoChunk = new WeakMap();
-  _writeChunk = new WeakSet();
-  writeChunk_fn = function(chunk) {
-    chunk.offset = __privateGet(this, _target).pos;
-    for (let bytes of chunk.sampleData)
-      __privateGet(this, _target).write(bytes);
-    chunk.sampleData = null;
-    __privateGet(this, _chunks).push(chunk);
+  _videoTrack = new WeakMap();
+  _audioTrack = new WeakMap();
+  _finalized = new WeakMap();
+  _validateOptions = new WeakSet();
+  validateOptions_fn = function(options) {
+    if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
+      throw new Error(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
+    }
   };
-  _writeMovieBox = new WeakSet();
-  writeMovieBox_fn = function() {
+  _writeHeader = new WeakSet();
+  writeHeader_fn = function() {
+    __privateGet(this, _target).writeBox({
+      type: "ftyp" /* FileType */,
+      contents: new Uint8Array([
+        109,
+        112,
+        52,
+        50,
+        // mp42
+        0,
+        0,
+        0,
+        0,
+        // Minor version 0
+        105,
+        115,
+        111,
+        109,
+        // isom
+        97,
+        118,
+        99,
+        49,
+        // avc1
+        109,
+        112,
+        52,
+        50,
+        // mp42
+        109,
+        112,
+        52,
+        49
+        // mp41
+      ])
+    });
+    __privateSet(this, _mdat, {
+      type: "mdat" /* MovieData */,
+      largeSize: true
+    });
+    __privateGet(this, _target).writeBox(__privateGet(this, _mdat));
+  };
+  _prepareTracks = new WeakSet();
+  prepareTracks_fn = function() {
+    if (__privateGet(this, _options).video) {
+      __privateSet(this, _videoTrack, {
+        volume: 0,
+        samples: [],
+        writtenChunks: [],
+        currentChunk: null
+      });
+    }
+    if (__privateGet(this, _options).audio) {
+      __privateSet(this, _audioTrack, {
+        volume: 1,
+        samples: [],
+        writtenChunks: [],
+        currentChunk: null
+      });
+    }
+  };
+  _addSampleToTrack = new WeakSet();
+  addSampleToTrack_fn = function(track, sample, meta) {
+    var _a;
+    if (!track.currentChunk || sample.timestamp - track.currentChunk.startTimestamp >= MAX_CHUNK_LENGTH) {
+      if (track.currentChunk)
+        __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, track);
+      track.currentChunk = { startTimestamp: sample.timestamp, sampleData: [], sampleCount: 0 };
+    }
+    let data = new Uint8Array(sample.byteLength);
+    sample.copyTo(data);
+    track.currentChunk.sampleData.push(data);
+    track.currentChunk.sampleCount++;
+    if ((_a = meta.decoderConfig) == null ? void 0 : _a.description) {
+      __privateSet(this, _videoDecoderConfig, new Uint8Array(meta.decoderConfig.description));
+    }
+    track.samples.push({
+      timestamp: sample.timestamp / 1e6,
+      size: data.byteLength
+    });
+  };
+  _writeCurrentChunk = new WeakSet();
+  writeCurrentChunk_fn = function(track) {
+    track.currentChunk.offset = __privateGet(this, _target).pos;
+    for (let bytes of track.currentChunk.sampleData)
+      __privateGet(this, _target).write(bytes);
+    track.currentChunk.sampleData = null;
+    track.writtenChunks.push(track.currentChunk);
+  };
+  _ensureNotFinalized = new WeakSet();
+  ensureNotFinalized_fn = function() {
+    if (__privateGet(this, _finalized)) {
+      throw new Error("Cannot add new video or audio chunks after the file has been finalized.");
+    }
+  };
+  _createMovieBox = new WeakSet();
+  createMovieBox_fn = function() {
+    var _a, _b, _c, _d, _e, _f;
+    let duration = timestampToUnits(Math.max(
+      (_c = (_b = last((_a = __privateGet(this, _videoTrack)) == null ? void 0 : _a.samples)) == null ? void 0 : _b.timestamp) != null ? _c : 0,
+      (_f = (_e = last((_d = __privateGet(this, _audioTrack)) == null ? void 0 : _d.samples)) == null ? void 0 : _e.timestamp) != null ? _f : 0
+    ), GLOBAL_TIMESCALE);
+    let videoTrackBox = __privateGet(this, _videoTrack) && __privateMethod(this, _createTrackBox, createTrackBox_fn).call(this, __privateGet(this, _videoTrack));
+    let audioTrackBox = __privateGet(this, _audioTrack) && __privateMethod(this, _createTrackBox, createTrackBox_fn).call(this, __privateGet(this, _audioTrack));
+    let movieHeaderBox = {
+      type: "mvhd" /* MovieHeader */,
+      contents: new Uint8Array([
+        0,
+        // Version
+        0,
+        0,
+        0,
+        // Flags
+        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
+        // Creation time
+        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
+        // Modification time
+        u32(GLOBAL_TIMESCALE),
+        u32(duration),
+        fixed32(1),
+        // Preferred rate
+        fixed16(1),
+        // Preferred volume
+        Array(10).fill(0),
+        // Reserved
+        [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
+        Array(24).fill(0),
+        // Pre-defined
+        u32(2)
+        // Next track ID
+      ].flat())
+    };
+    let movieBox = {
+      type: "moov" /* Movie */,
+      children: [movieHeaderBox, videoTrackBox, audioTrackBox]
+    };
+    return movieBox;
+  };
+  _createTrackBox = new WeakSet();
+  createTrackBox_fn = function(track) {
     var _a, _b;
     const timescale = 1e3;
     let current = [];
     let entries = [];
-    for (let sample of __privateGet(this, _videoSampleRecords)) {
+    for (let sample of track.samples) {
       current.push(sample);
       if (current.length === 1)
         continue;
@@ -201,8 +631,8 @@ var Mp4Muxer = (() => {
         // Sample number
       ].flat())
     };
-    let compactlyCodedChunks = __privateGet(this, _chunks).reduce((acc, next, index) => {
-      if (acc.length === 0 || acc[acc.length - 1].samplesPerChunk !== next.sampleCount)
+    let compactlyCodedChunks = track.writtenChunks.reduce((acc, next, index) => {
+      if (acc.length === 0 || last(acc).samplesPerChunk !== next.sampleCount)
         return [
           ...acc,
           { firstChunk: index + 1, samplesPerChunk: next.sampleCount }
@@ -239,9 +669,9 @@ var Mp4Muxer = (() => {
         // Flags
         u32(0),
         // Sample size
-        u32(__privateGet(this, _videoSampleRecords).length),
+        u32(track.samples.length),
         // Sample count
-        __privateGet(this, _videoSampleRecords).flatMap((x) => u32(x.size))
+        track.samples.flatMap((x) => u32(x.size))
       ].flat())
     };
     let chunkOffsetBox = {
@@ -253,13 +683,13 @@ var Mp4Muxer = (() => {
         0,
         0,
         // Flags,
-        u32(__privateGet(this, _chunks).length),
+        u32(track.writtenChunks.length),
         // Entry count
-        __privateGet(this, _chunks).flatMap((x) => u32(x.offset))
+        track.writtenChunks.flatMap((x) => u32(x.offset))
       ].flat())
     };
     let duration = timestampToUnits(
-      __privateGet(this, _videoSampleRecords)[__privateGet(this, _videoSampleRecords).length - 1].timestamp,
+      last(track.samples).timestamp,
       timescale
     );
     let mediaHeaderBox = {
@@ -451,7 +881,7 @@ var Mp4Muxer = (() => {
         0,
         0,
         // Alternate group
-        fixed16(0),
+        fixed16(track.volume),
         // Volume
         0,
         0,
@@ -467,182 +897,8 @@ var Mp4Muxer = (() => {
       type: "trak" /* Track */,
       children: [trackHeaderBox, mediaBox]
     };
-    let movieHeaderBox = {
-      type: "mvhd" /* MovieHeader */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Creation time
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Modification time
-        u32(timescale),
-        u32(duration),
-        fixed32(1),
-        // Preferred rate
-        fixed16(1),
-        // Preferred volume
-        Array(10).fill(0),
-        // Reserved
-        [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
-        Array(24).fill(0),
-        // Pre-defined
-        u32(2)
-        // Next track ID
-      ].flat())
-    };
-    let movieBox = {
-      type: "moov" /* Movie */,
-      children: [movieHeaderBox, trackBox]
-    };
-    __privateGet(this, _target).writeBox(movieBox);
+    return trackBox;
   };
-  var u16 = (value) => {
-    let bytes = new Uint8Array(2);
-    let view = new DataView(bytes.buffer);
-    view.setUint16(0, value, false);
-    return [...bytes];
-  };
-  var i16 = (value) => {
-    let bytes = new Uint8Array(2);
-    let view = new DataView(bytes.buffer);
-    view.setInt16(0, value, false);
-    return [...bytes];
-  };
-  var u32 = (value) => {
-    let bytes = new Uint8Array(4);
-    let view = new DataView(bytes.buffer);
-    view.setUint32(0, value, false);
-    return [...bytes];
-  };
-  var fixed16 = (value) => {
-    let bytes = new Uint8Array(2);
-    let view = new DataView(bytes.buffer);
-    view.setUint8(0, value);
-    view.setUint8(1, value << 8);
-    return [...bytes];
-  };
-  var fixed32 = (value) => {
-    let bytes = new Uint8Array(4);
-    let view = new DataView(bytes.buffer);
-    view.setUint16(0, value, false);
-    view.setUint16(2, value << 16, false);
-    return [...bytes];
-  };
-  var ascii = (text, nullTerminated = false) => {
-    let bytes = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
-    if (nullTerminated)
-      bytes.push(0);
-    return bytes;
-  };
-  var timestampToUnits = (timestamp, timescale) => {
-    return Math.floor(timestamp * timescale);
-  };
-  var _helper, _helperView;
-  var WriteTarget = class {
-    constructor() {
-      this.pos = 0;
-      __privateAdd(this, _helper, new Uint8Array(8));
-      __privateAdd(this, _helperView, new DataView(__privateGet(this, _helper).buffer));
-      /**
-       * Stores the position from the start of the file to where boxes elements have been written. This is used to
-       * rewrite/edit elements that were already added before, and to measure sizes of things.
-       */
-      this.offsets = /* @__PURE__ */ new WeakMap();
-    }
-    writeU32(value) {
-      __privateGet(this, _helperView).setUint32(0, value, false);
-      this.write(__privateGet(this, _helper).subarray(0, 4));
-    }
-    writeU64(value) {
-      __privateGet(this, _helperView).setUint32(0, Math.floor(value / __pow(2, 32)), false);
-      __privateGet(this, _helperView).setUint32(4, value, false);
-      this.write(__privateGet(this, _helper).subarray(0, 8));
-    }
-    writeAscii(text) {
-      for (let i = 0; i < text.length; i++) {
-        __privateGet(this, _helperView).setUint8(i % 8, text.charCodeAt(i));
-        if (i % 8 === 7)
-          this.write(__privateGet(this, _helper));
-      }
-      if (text.length % 8 !== 0) {
-        this.write(__privateGet(this, _helper).subarray(0, text.length % 8));
-      }
-    }
-    writeBox(box) {
-      var _a, _b;
-      this.offsets.set(box, this.pos);
-      if (box.contents && !box.children) {
-        this.writeBoxHeader(box, (_a = box.size) != null ? _a : box.contents.byteLength + 8);
-        this.write(box.contents);
-      } else {
-        let startPos = this.pos;
-        this.writeBoxHeader(box, 0);
-        if (box.contents)
-          this.write(box.contents);
-        if (box.children)
-          for (let child of box.children)
-            this.writeBox(child);
-        let endPos = this.pos;
-        let size = (_b = box.size) != null ? _b : endPos - startPos;
-        this.pos = startPos;
-        this.writeBoxHeader(box, size);
-        this.pos = endPos;
-      }
-    }
-    writeBoxHeader(box, size) {
-      this.writeU32(box.largeSize ? 1 : size);
-      this.writeAscii(box.type);
-      if (box.largeSize)
-        this.writeU64(size);
-    }
-    patchBox(box) {
-      let endPos = this.pos;
-      this.pos = this.offsets.get(box);
-      this.writeBox(box);
-      this.pos = endPos;
-    }
-  };
-  _helper = new WeakMap();
-  _helperView = new WeakMap();
-  var _buffer, _bytes;
-  var ArrayBufferWriteTarget = class extends WriteTarget {
-    constructor() {
-      super();
-      __privateAdd(this, _buffer, new ArrayBuffer(__pow(2, 16)));
-      __privateAdd(this, _bytes, new Uint8Array(__privateGet(this, _buffer)));
-    }
-    ensureSize(size) {
-      let newLength = __privateGet(this, _buffer).byteLength;
-      while (newLength < size)
-        newLength *= 2;
-      if (newLength === __privateGet(this, _buffer).byteLength)
-        return;
-      let newBuffer = new ArrayBuffer(newLength);
-      let newBytes = new Uint8Array(newBuffer);
-      newBytes.set(__privateGet(this, _bytes), 0);
-      __privateSet(this, _buffer, newBuffer);
-      __privateSet(this, _bytes, newBytes);
-    }
-    write(data) {
-      this.ensureSize(this.pos + data.byteLength);
-      __privateGet(this, _bytes).set(data, this.pos);
-      this.pos += data.byteLength;
-    }
-    seek(newPos) {
-      this.pos = newPos;
-    }
-    finalize() {
-      this.ensureSize(this.pos);
-      return __privateGet(this, _buffer).slice(0, this.pos);
-    }
-  };
-  _buffer = new WeakMap();
-  _bytes = new WeakMap();
   var main_default = Mp4Muxer;
   return __toCommonJS(main_exports);
 })();
