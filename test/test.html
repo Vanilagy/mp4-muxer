@@ -3,12 +3,17 @@
 <script type="module">
 	const width = 1280;
 	const height = 720;
+	const sampleRate = 44100;
 
 	let muxer = new Mp4Muxer({
 		target: 'buffer',
 		video: {
 			width,
 			height
+		},
+		audio: {
+			numberOfChannels: 1,
+			sampleRate
 		}
 	});
 
@@ -17,14 +22,14 @@
 	canvas.height = height;
 	let ctx = canvas.getContext('2d');
 
-	let encoder = new VideoEncoder({
+	let videoEncoder = new VideoEncoder({
 		output: (chunk, meta) => {
 			console.log(chunk, meta);
 			muxer.addVideoChunk(chunk, meta);
 		},
 		error: (e) => console.error(e)
 	});
-	encoder.configure({
+	videoEncoder.configure({
 		codec: 'avc1.4d002a',
 		width: width,
 		height: height,
@@ -32,15 +37,47 @@
 		framerate: 10,
 	});
 
+	let audioEncoder = new AudioEncoder({
+		output: (chunk, meta) => {
+			console.log(chunk, meta);
+			muxer.addAudioChunk(chunk, meta);
+		},
+		error: (e) => console.error(e)
+	});
+	audioEncoder.configure({
+		codec: 'mp4a.40.2',
+		sampleRate,
+		numberOfChannels: 1,
+		bitrate: 128000,
+	});
+
 	for (let i = 0; i < 100; i++) {
 		ctx.fillStyle = ['red', 'lime', 'blue', 'yellow'][Math.floor(Math.random() * 4)];
 		ctx.fillRect(Math.random() * width, Math.random() * height, Math.random() * width, Math.random() * height);
 
 		let frame = new VideoFrame(canvas, { timestamp: 100000 * i });
-		encoder.encode(frame);
+		videoEncoder.encode(frame);
 	}
 
-	await encoder.flush();
+	let audioContext = new AudioContext();
+	let audioBuffer = await audioContext.decodeAudioData(await (await fetch('./CantinaBand60.wav')).arrayBuffer());
+	let length = 10;
+	let data = new Float32Array(length * sampleRate);
+	data.set(audioBuffer.getChannelData(0).subarray(0, data.length), 0);
+
+	let audioData = new AudioData({
+		format: 'f32',
+		sampleRate,
+		numberOfFrames: length * sampleRate,
+		numberOfChannels: 1,
+		timestamp: 0,
+		data
+	});
+	audioEncoder.encode(audioData);
+	audioData.close();
+
+	await videoEncoder.flush();
+	await audioEncoder.flush();
 
 	let buffer = muxer.finalize();
 	console.log(buffer);

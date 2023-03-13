@@ -30,7 +30,17 @@ interface Mp4MuxerOptions {
 }
 
 interface Track {
-	volume: number,
+	info: {
+		type: 'video',
+		width: number,
+		height: number
+	} | {
+		type: 'audio',
+		numberOfChannels: number,
+		sampleRate: number,
+		bitDepth: number
+	},
+	codecPrivate: Uint8Array,
 	samples: Sample[],
 	writtenChunks: Chunk[],
 	currentChunk: Chunk
@@ -53,7 +63,6 @@ class Mp4Muxer {
 	#target: WriteTarget;
 	#mdat: Box;
 
-	#videoDecoderConfig: Uint8Array;
 	#videoTrack: Track = null;
 	#audioTrack: Track = null;
 
@@ -110,7 +119,12 @@ class Mp4Muxer {
 	#prepareTracks() {
 		if (this.#options.video) {
 			this.#videoTrack = {
-				volume: 0,
+				info: {
+					type: 'video',
+					width: this.#options.video.width,
+					height: this.#options.video.height,
+				},
+				codecPrivate: null,
 				samples: [],
 				writtenChunks: [],
 				currentChunk: null
@@ -119,7 +133,13 @@ class Mp4Muxer {
 
 		if (this.#options.audio) {
 			this.#audioTrack = {
-				volume: 1,
+				info: {
+					type: 'audio',
+					numberOfChannels: this.#options.audio.numberOfChannels,
+					sampleRate: this.#options.audio.sampleRate,
+					bitDepth: this.#options.audio.bitDepth && 16
+				},
+				codecPrivate: null,
 				samples: [],
 				writtenChunks: [],
 				currentChunk: null
@@ -134,7 +154,18 @@ class Mp4Muxer {
 		this.#addSampleToTrack(this.#videoTrack, sample, meta);
 	}
 
-	#addSampleToTrack(track: Track, sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata) {
+	addAudioChunk(sample: EncodedAudioChunk, meta: EncodedAudioChunkMetadata) {
+		this.#ensureNotFinalized();
+		if (!this.#options.audio) throw new Error("No audio track declared.");
+
+		this.#addSampleToTrack(this.#audioTrack, sample, meta);
+	}
+
+	#addSampleToTrack(
+		track: Track,
+		sample: EncodedVideoChunk | EncodedAudioChunk,
+		meta: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata
+	) {
 		if (!track.currentChunk || sample.timestamp - track.currentChunk.startTimestamp >= MAX_CHUNK_LENGTH) {
 			if (track.currentChunk) this.#writeCurrentChunk(track);
 			track.currentChunk = { startTimestamp: sample.timestamp, sampleData: [], sampleCount: 0 };
@@ -147,7 +178,7 @@ class Mp4Muxer {
 		track.currentChunk.sampleCount++;
 
 		if (meta.decoderConfig?.description) {
-			this.#videoDecoderConfig = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
+			track.codecPrivate = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
 		}
 
 		track.samples.push({
@@ -209,7 +240,7 @@ class Mp4Muxer {
 				Array(10).fill(0), // Reserved
 				[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
 				Array(24).fill(0), // Pre-defined
-				u32(2) // Next track ID
+				u32(this.#options.audio ? 3 : 2) // Next track ID
 			].flat())
 		};
 
@@ -337,23 +368,33 @@ class Mp4Muxer {
 				0x00, // Version
 				0x00, 0x00, 0x00, // Flags
 				u32(0), // Pre-defined
-				ascii('vide'), // Component subtype
+				ascii(track.info.type === 'video' ? 'vide' : 'soun'), // Component subtype
 				Array(12).fill(0), // Reserved
-				ascii('Video track', true)
+				ascii(track.info.type === 'video' ? 'Video track' : 'Audio track', true)
 			].flat())
 		};
 
-		let mediaInformationHeaderBox: Box = {
-			type: BoxType.VideoMediaInformationHeader,
-			contents: new Uint8Array([
-				0x00, // Version
-				0x00, 0x00, 0x01, // Flags
-				0x00, 0x00, // Graphics mode
-				0x00, 0x00, // Opcolor R
-				0x00, 0x00, // Opcolor G
-				0x00, 0x00, // Opcolor B
-			])
-		};
+		let mediaInformationHeaderBox: Box = track.info.type === 'video'
+			? {
+				type: BoxType.VideoMediaInformationHeader,
+				contents: new Uint8Array([
+					0x00, // Version
+					0x00, 0x00, 0x01, // Flags
+					0x00, 0x00, // Graphics mode
+					0x00, 0x00, // Opcolor R
+					0x00, 0x00, // Opcolor G
+					0x00, 0x00, // Opcolor B
+				])
+			}
+			: {
+				type: BoxType.SoundMediaInformationHeader,
+				contents: new Uint8Array([
+					0x00, // Version
+					0x00, 0x00, 0x00, // Flags
+					0x00, 0x00, // Balance
+					0x00, 0x00, // Reserved
+				])
+			};
 
 		let dataInformationBox: Box = {
 			type: BoxType.DataInformation,
@@ -381,29 +422,52 @@ class Mp4Muxer {
 				0x00, 0x00, 0x00, // Flags
 				u32(1) // Entry count
 			].flat()),
-			children: [{
-				type: 'avc1',
-				contents: new Uint8Array([
-					Array(6).fill(0), // Reserved
-					0x00, 0x00, // Data reference index
-					0x00, 0x00, // Pre-defined
-					0x00, 0x00, // Reserved
-					Array(12).fill(0), // Pre-defined
-					u16(this.#options.video.width), // Width
-					u16(this.#options.video.height), // Height
-					u32(0x00480000), // Horizontal resolution
-					u32(0x00480000), // Vertical resolution
-					u32(0), // Reserved
-					u16(1), // Frame count
-					Array(32).fill(0), // Compressor name
-					u16(0x0018), // Depth
-					i16(0xffff), // Pre-defined
-				].flat()),
-				children: [{
-					type: 'avcC',
-					contents: this.#videoDecoderConfig
-				}]
-			}]
+			children: [track.info.type === 'video'
+				? {
+					type: 'avc1',
+					contents: new Uint8Array([
+						Array(6).fill(0), // Reserved
+						0x00, 0x00, // Data reference index
+						0x00, 0x00, // Pre-defined
+						0x00, 0x00, // Reserved
+						Array(12).fill(0), // Pre-defined
+						u16(this.#options.video.width), // Width
+						u16(this.#options.video.height), // Height
+						u32(0x00480000), // Horizontal resolution
+						u32(0x00480000), // Vertical resolution
+						u32(0), // Reserved
+						u16(1), // Frame count
+						Array(32).fill(0), // Compressor name
+						u16(0x0018), // Depth
+						i16(0xffff), // Pre-defined
+					].flat()),
+					children: [{
+						type: 'avcC',
+						contents: track.codecPrivate
+					}]
+				}
+				: {
+					type: 'mp4a',
+					contents: new Uint8Array([
+						Array(6).fill(0), // Reserved
+						0x00, 0x00, // Data reference index
+						Array(8).fill(0), // Reserved
+						u16(track.info.numberOfChannels),
+						u16(track.info.bitDepth),
+						0x00, 0x00, // Pre-defined
+						0x00, 0x00, // Reserved
+						fixed32(track.info.sampleRate),
+					].flat()),
+					children: [{
+						type: 'esds',
+						contents: new Uint8Array([
+							0x00, // Version
+							0x00, 0x00, 0x00, // Flags
+							...track.codecPrivate
+						])
+					}]
+				}
+			]
 		};
 
 		let sampleTableBox: Box = {
@@ -435,17 +499,17 @@ class Mp4Muxer {
 				0x00, 0x00, 0x03, // Flags (enabled + in movie)
 				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
 				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
-				u32(1), // Track ID
+				u32(track.info.type === 'video' ? 1 : 2), // Track ID
 				u32(0), // Reserved
 				u32(duration), // Duration
 				Array(8).fill(0), // Reserved
 				0x00, 0x00, // Layer
 				0x00, 0x00, // Alternate group
-				fixed16(track.volume), // Volume
+				fixed16(track.info.type === 'audio' ? 1 : 0), // Volume
 				0x00, 0x00, // Reserved
 				[0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000].flatMap(u32),
-				fixed32(this.#options.video.width), // Track width
-				fixed32(this.#options.video.height) // Track height
+				fixed32(track.info.type === 'video' ? track.info.width : 0), // Track width
+				fixed32(track.info.type === 'video' ? track.info.height : 0) // Track height
 			].flat())
 		};
 

@@ -17,6 +17,7 @@ export enum BoxType {
 	HandlerReference = 'hdlr',
 	MediaInformation = 'minf',
 	VideoMediaInformationHeader = 'vmhd',
+	SoundMediaInformationHeader = 'smhd',
 	DataInformation = 'dinf',
 	DataReference = 'dref',
 	SampleTable = 'stbl',

@@ -373,7 +373,7 @@ var Mp4Muxer = (() => {
   var MAX_CHUNK_LENGTH = 5e5;
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
   var GLOBAL_TIMESCALE = 1e3;
-  var _options, _target, _mdat, _videoDecoderConfig, _videoTrack, _audioTrack, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _ensureNotFinalized, ensureNotFinalized_fn, _createMovieBox, createMovieBox_fn, _createTrackBox, createTrackBox_fn;
+  var _options, _target, _mdat, _videoTrack, _audioTrack, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _ensureNotFinalized, ensureNotFinalized_fn, _createMovieBox, createMovieBox_fn, _createTrackBox, createTrackBox_fn;
   var Mp4Muxer = class {
     constructor(options) {
       __privateAdd(this, _validateOptions);
@@ -387,7 +387,6 @@ var Mp4Muxer = (() => {
       __privateAdd(this, _options, void 0);
       __privateAdd(this, _target, void 0);
       __privateAdd(this, _mdat, void 0);
-      __privateAdd(this, _videoDecoderConfig, void 0);
       __privateAdd(this, _videoTrack, null);
       __privateAdd(this, _audioTrack, null);
       __privateAdd(this, _finalized, false);
@@ -413,6 +412,12 @@ var Mp4Muxer = (() => {
         throw new Error("No video track declared.");
       __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _videoTrack), sample, meta);
     }
+    addAudioChunk(sample, meta) {
+      __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
+      if (!__privateGet(this, _options).audio)
+        throw new Error("No audio track declared.");
+      __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _audioTrack), sample, meta);
+    }
     finalize() {
       if (__privateGet(this, _videoTrack))
         __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, __privateGet(this, _videoTrack));
@@ -431,7 +436,6 @@ var Mp4Muxer = (() => {
   _options = new WeakMap();
   _target = new WeakMap();
   _mdat = new WeakMap();
-  _videoDecoderConfig = new WeakMap();
   _videoTrack = new WeakMap();
   _audioTrack = new WeakMap();
   _finalized = new WeakMap();
@@ -488,7 +492,12 @@ var Mp4Muxer = (() => {
   prepareTracks_fn = function() {
     if (__privateGet(this, _options).video) {
       __privateSet(this, _videoTrack, {
-        volume: 0,
+        info: {
+          type: "video",
+          width: __privateGet(this, _options).video.width,
+          height: __privateGet(this, _options).video.height
+        },
+        codecPrivate: null,
         samples: [],
         writtenChunks: [],
         currentChunk: null
@@ -496,7 +505,13 @@ var Mp4Muxer = (() => {
     }
     if (__privateGet(this, _options).audio) {
       __privateSet(this, _audioTrack, {
-        volume: 1,
+        info: {
+          type: "audio",
+          numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
+          sampleRate: __privateGet(this, _options).audio.sampleRate,
+          bitDepth: __privateGet(this, _options).audio.bitDepth && 16
+        },
+        codecPrivate: null,
         samples: [],
         writtenChunks: [],
         currentChunk: null
@@ -516,7 +531,7 @@ var Mp4Muxer = (() => {
     track.currentChunk.sampleData.push(data);
     track.currentChunk.sampleCount++;
     if ((_a = meta.decoderConfig) == null ? void 0 : _a.description) {
-      __privateSet(this, _videoDecoderConfig, new Uint8Array(meta.decoderConfig.description));
+      track.codecPrivate = new Uint8Array(meta.decoderConfig.description);
     }
     track.samples.push({
       timestamp: sample.timestamp / 1e6,
@@ -570,7 +585,7 @@ var Mp4Muxer = (() => {
         [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
         Array(24).fill(0),
         // Pre-defined
-        u32(2)
+        u32(__privateGet(this, _options).audio ? 3 : 2)
         // Next track ID
       ].flat())
     };
@@ -726,14 +741,14 @@ var Mp4Muxer = (() => {
         // Flags
         u32(0),
         // Pre-defined
-        ascii("vide"),
+        ascii(track.info.type === "video" ? "vide" : "soun"),
         // Component subtype
         Array(12).fill(0),
         // Reserved
-        ascii("Video track", true)
+        ascii(track.info.type === "video" ? "Video track" : "Audio track", true)
       ].flat())
     };
-    let mediaInformationHeaderBox = {
+    let mediaInformationHeaderBox = track.info.type === "video" ? {
       type: "vmhd" /* VideoMediaInformationHeader */,
       contents: new Uint8Array([
         0,
@@ -754,6 +769,22 @@ var Mp4Muxer = (() => {
         0,
         0
         // Opcolor B
+      ])
+    } : {
+      type: "smhd" /* SoundMediaInformationHeader */,
+      contents: new Uint8Array([
+        0,
+        // Version
+        0,
+        0,
+        0,
+        // Flags
+        0,
+        0,
+        // Balance
+        0,
+        0
+        // Reserved
       ])
     };
     let dataInformationBox = {
@@ -794,46 +825,80 @@ var Mp4Muxer = (() => {
         u32(1)
         // Entry count
       ].flat()),
-      children: [{
-        type: "avc1",
-        contents: new Uint8Array([
-          Array(6).fill(0),
-          // Reserved
-          0,
-          0,
-          // Data reference index
-          0,
-          0,
-          // Pre-defined
-          0,
-          0,
-          // Reserved
-          Array(12).fill(0),
-          // Pre-defined
-          u16(__privateGet(this, _options).video.width),
-          // Width
-          u16(__privateGet(this, _options).video.height),
-          // Height
-          u32(4718592),
-          // Horizontal resolution
-          u32(4718592),
-          // Vertical resolution
-          u32(0),
-          // Reserved
-          u16(1),
-          // Frame count
-          Array(32).fill(0),
-          // Compressor name
-          u16(24),
-          // Depth
-          i16(65535)
-          // Pre-defined
-        ].flat()),
-        children: [{
-          type: "avcC",
-          contents: __privateGet(this, _videoDecoderConfig)
-        }]
-      }]
+      children: [
+        track.info.type === "video" ? {
+          type: "avc1",
+          contents: new Uint8Array([
+            Array(6).fill(0),
+            // Reserved
+            0,
+            0,
+            // Data reference index
+            0,
+            0,
+            // Pre-defined
+            0,
+            0,
+            // Reserved
+            Array(12).fill(0),
+            // Pre-defined
+            u16(__privateGet(this, _options).video.width),
+            // Width
+            u16(__privateGet(this, _options).video.height),
+            // Height
+            u32(4718592),
+            // Horizontal resolution
+            u32(4718592),
+            // Vertical resolution
+            u32(0),
+            // Reserved
+            u16(1),
+            // Frame count
+            Array(32).fill(0),
+            // Compressor name
+            u16(24),
+            // Depth
+            i16(65535)
+            // Pre-defined
+          ].flat()),
+          children: [{
+            type: "avcC",
+            contents: track.codecPrivate
+          }]
+        } : {
+          type: "mp4a",
+          contents: new Uint8Array([
+            Array(6).fill(0),
+            // Reserved
+            0,
+            0,
+            // Data reference index
+            Array(8).fill(0),
+            // Reserved
+            u16(track.info.numberOfChannels),
+            u16(track.info.bitDepth),
+            0,
+            0,
+            // Pre-defined
+            0,
+            0,
+            // Reserved
+            fixed32(track.info.sampleRate)
+          ].flat()),
+          children: [{
+            type: "esds",
+            contents: new Uint8Array([
+              0,
+              // Version
+              0,
+              0,
+              0,
+              // Flags
+              ...track.codecPrivate
+            ])
+          }]
+        }
+      ]
     };
     let sampleTableBox = {
       type: "stbl" /* SampleTable */,
@@ -867,7 +932,7 @@ var Mp4Muxer = (() => {
         // Creation time
         u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
         // Modification time
-        u32(1),
+        u32(track.info.type === "video" ? 1 : 2),
         // Track ID
         u32(0),
         // Reserved
@@ -881,15 +946,15 @@ var Mp4Muxer = (() => {
         0,
         0,
         // Alternate group
-        fixed16(track.volume),
+        fixed16(track.info.type === "audio" ? 1 : 0),
         // Volume
         0,
         0,
         // Reserved
         [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
-        fixed32(__privateGet(this, _options).video.width),
+        fixed32(track.info.type === "video" ? track.info.width : 0),
         // Track width
-        fixed32(__privateGet(this, _options).video.height)
+        fixed32(track.info.type === "video" ? track.info.height : 0)
         // Track height
       ].flat())
     };
