@@ -1,4 +1,4 @@
-import { Box } from "./misc";
+import { Box } from "./boxes";
 
 export abstract class WriteTarget {
 	pos = 0;
