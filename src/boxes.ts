@@ -187,7 +187,7 @@ export const smhd = () => fullBox('smhd', 0, 0, [
 
 /**
  * Data Information Box: Contains information specifying the data handler component that provides access to the
- * media data. The data handler component uses the data information atom to interpret the media's data.
+ * media data. The data handler component uses the Data Information Box to interpret the media's data.
  */
 export const dinf = () => box('dinf', null, [
 	dref()
@@ -205,7 +205,7 @@ export const dref = () => fullBox('dref', 0, 0, [
 export const url = () => fullBox('url ', 0, 1); // Self-reference flag enabled
 
 /**
- * Sample Table Box: Contains information for converting from media time to sample number to sample location. This atom
+ * Sample Table Box: Contains information for converting from media time to sample number to sample location. This box
  * also indicates how to interpret the sample (for example, whether to decompress the video data and, if so, how).
  */
 export const stbl = (track: Track) => box('stbl', null, [
