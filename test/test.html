@@ -4,15 +4,17 @@
 	const width = 1280;
 	const height = 720;
 	const sampleRate = 44100;
+	const numberOfChannels = 1;
 
 	let muxer = new Mp4Muxer({
 		target: 'buffer',
+		
 		video: {
 			width,
 			height
 		},
 		audio: {
-			numberOfChannels: 1,
+			numberOfChannels,
 			sampleRate
 		}
 	});
@@ -30,7 +32,7 @@
 		error: (e) => console.error(e)
 	});
 	videoEncoder.configure({
-		codec: 'avc1.4d002a',
+		codec: 'avc1.640028',
 		width: width,
 		height: height,
 		bitrate: 1e6,
@@ -47,7 +49,7 @@
 	audioEncoder.configure({
 		codec: 'mp4a.40.2',
 		sampleRate,
-		numberOfChannels: 1,
+		numberOfChannels,
 		bitrate: 128000,
 	});
 
@@ -62,14 +64,15 @@
 	let audioContext = new AudioContext();
 	let audioBuffer = await audioContext.decodeAudioData(await (await fetch('./CantinaBand60.wav')).arrayBuffer());
 	let length = 10;
-	let data = new Float32Array(length * sampleRate);
+	let data = new Float32Array(length * numberOfChannels * sampleRate);
 	data.set(audioBuffer.getChannelData(0).subarray(0, data.length), 0);
+	//data.set(audioBuffer.getChannelData(0).subarray(0, data.length/2), data.length/2);
 
 	let audioData = new AudioData({
-		format: 'f32',
+		format: 'f32-planar',
 		sampleRate,
 		numberOfFrames: length * sampleRate,
-		numberOfChannels: 1,
+		numberOfChannels,
 		timestamp: 0,
 		data
 	});
@@ -88,5 +91,5 @@
 		a.download = filename;
 		a.click();
 	}
-	download(new Blob([buffer]), 'test.mp4');
+	download(new Blob([buffer]), 't.mp4');
 </script>

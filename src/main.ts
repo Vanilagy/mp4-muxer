@@ -48,7 +48,9 @@ interface Track {
 
 interface Sample {
 	timestamp: number,
-	size: number
+	duration: number,
+	size: number,
+	type: 'key' | 'delta'
 }
 
 interface Chunk {
@@ -100,11 +102,10 @@ class Mp4Muxer {
 		this.#target.writeBox({
 			type: BoxType.FileType,
 			contents: new Uint8Array([
-				0x6d, 0x70, 0x34, 0x32, // mp42
+				0x69, 0x73, 0x6f, 0x6d, // isom
 				0x00, 0x00, 0x00, 0x00, // Minor version 0
 				0x69, 0x73, 0x6f, 0x6d, // isom
 				0x61, 0x76, 0x63, 0x31, // avc1
-				0x6d, 0x70, 0x34, 0x32, // mp42
 				0x6d, 0x70, 0x34, 0x31  // mp41
 			])
 		});
@@ -137,7 +138,7 @@ class Mp4Muxer {
 					type: 'audio',
 					numberOfChannels: this.#options.audio.numberOfChannels,
 					sampleRate: this.#options.audio.sampleRate,
-					bitDepth: this.#options.audio.bitDepth && 16
+					bitDepth: this.#options.audio.bitDepth ?? 16
 				},
 				codecPrivate: null,
 				samples: [],
@@ -183,11 +184,15 @@ class Mp4Muxer {
 
 		track.samples.push({
 			timestamp: sample.timestamp / 1e6,
-			size: data.byteLength
+			duration: sample.duration / 1e6,
+			size: data.byteLength,
+			type: sample.type
 		});
 	}
 
 	#writeCurrentChunk(track: Track) {
+		if (!track.currentChunk) return;
+
 		track.currentChunk.offset = this.#target.pos;
 		for (let bytes of track.currentChunk.sampleData) this.#target.write(bytes);
 		track.currentChunk.sampleData = null;
@@ -218,9 +223,12 @@ class Mp4Muxer {
 	}
 
 	#createMovieBox() {
+		let lastVideoSample = last(this.#videoTrack?.samples);
+		let lastAudioSample = last(this.#audioTrack?.samples);
+
 		let duration = timestampToUnits(Math.max(
-			last(this.#videoTrack?.samples)?.timestamp ?? 0,
-			last(this.#audioTrack?.samples)?.timestamp ?? 0
+			lastVideoSample ? lastVideoSample.timestamp + lastVideoSample.duration : 0,
+			lastAudioSample ? lastAudioSample.timestamp + lastAudioSample.duration : 0
 		), GLOBAL_TIMESCALE);
 
 		let videoTrackBox = this.#videoTrack && this.#createTrackBox(this.#videoTrack);
@@ -240,7 +248,7 @@ class Mp4Muxer {
 				Array(10).fill(0), // Reserved
 				[ 0x00010000,0,0,0,0x00010000,0,0,0,0x40000000].flatMap(u32),
 				Array(24).fill(0), // Pre-defined
-				u32(this.#options.audio ? 3 : 2) // Next track ID
+				u32(+!!this.#options.audio + +!!this.#options.video + 1) // Next track ID
 			].flat())
 		};
 
@@ -253,7 +261,7 @@ class Mp4Muxer {
 	}
 
 	#createTrackBox(track: Track) {
-		const timescale = 1000;
+		let timescale = track.info.type === 'video' ? 960 : track.info.sampleRate;
 
 		let current: Sample[] = [];
 		let entries: { sampleCount: number, sampleDelta: number }[] = [];
@@ -272,9 +280,8 @@ class Mp4Muxer {
 
 		entries.push({
 			sampleCount: current.length,
-			sampleDelta: Math.floor(
+			sampleDelta:
 				timestampToUnits((current[1]?.timestamp ?? current[0].timestamp) - current[0].timestamp, timescale)
-			)
 		});
 
 		let timeToSampleBox: Box = {
@@ -287,26 +294,31 @@ class Mp4Muxer {
 			].flat())
 		};
 
-		let syncSampleBox: Box = {
-			type: BoxType.SyncSample,
-			contents: new Uint8Array([
-				0x00, // Version
-				0x00, 0x00, 0x00, // Flags
-				u32(1), // Entry count
-				u32(1), // Sample number
-			].flat())
-		};
+		let syncSampleBox: Box = null;
+		if (!track.samples.every(x => x.type === 'key')) {
+			let keySamples = [...track.samples.entries()].filter(([, sample]) => sample.type === 'key');
 
-		let compactlyCodedChunks = track.writtenChunks.reduce<{
+			syncSampleBox = {
+				type: BoxType.SyncSample,
+				contents: new Uint8Array([
+					0x00, // Version
+					0x00, 0x00, 0x00, // Flags
+					u32(keySamples.length), // Entry count
+					keySamples.flatMap(([index]) => u32(index + 1)) // Sample numbers
+				].flat())
+			};
+		}
+
+		let compactlyCodedChunks: {
 			firstChunk: number,
 			samplesPerChunk: number
-		}[]>((acc, next, index) => {
-			if (acc.length === 0 || last(acc).samplesPerChunk !== next.sampleCount) return [
-				...acc,
-				{ firstChunk: index + 1, samplesPerChunk: next.sampleCount }
-			];
-			return acc;
-		}, []);
+		}[] = [];
+		for (let i = 0; i < track.writtenChunks.length; i++) {
+			let next = track.writtenChunks[i];
+			if (compactlyCodedChunks.length === 0 || last(compactlyCodedChunks).samplesPerChunk !== next.sampleCount) {
+				compactlyCodedChunks.push({ firstChunk: i + 1, samplesPerChunk: next.sampleCount });
+			}
+		}
 
 		let sampleToChunkBox: Box = {
 			type: BoxType.SampleToChunk,
@@ -343,9 +355,14 @@ class Mp4Muxer {
 			].flat())
 		};
 
-		let duration = timestampToUnits(
-			last(track.samples).timestamp,
+		let lastSample = last(track.samples);
+		let localDuration = timestampToUnits(
+			lastSample.timestamp + lastSample.duration,
 			timescale
+		);
+		let globalDuration = timestampToUnits(
+			lastSample.timestamp + lastSample.duration,
+			GLOBAL_TIMESCALE
 		);
 
 		let mediaHeaderBox: Box = {
@@ -356,7 +373,7 @@ class Mp4Muxer {
 				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
 				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
 				u32(timescale),
-				u32(duration),
+				u32(localDuration),
 				0b01010101, 0b11000100, // Language ("und", undetermined)
 				0x00, 0x00 // Pre-defined
 			].flat())
@@ -408,8 +425,8 @@ class Mp4Muxer {
 				children: [{
 					type: 'url ',
 					contents: new Uint8Array([
-						0x00, 0x00, 0x00, // Flags
-						ascii('', true)
+						0x00, // Version
+						0x00, 0x00, 0x01 // Flags (with self-reference enabled)
 					].flat())
 				}]
 			}]
@@ -427,7 +444,7 @@ class Mp4Muxer {
 					type: 'avc1',
 					contents: new Uint8Array([
 						Array(6).fill(0), // Reserved
-						0x00, 0x00, // Data reference index
+						0x00, 0x01, // Data reference index
 						0x00, 0x00, // Pre-defined
 						0x00, 0x00, // Reserved
 						Array(12).fill(0), // Pre-defined
@@ -450,21 +467,40 @@ class Mp4Muxer {
 					type: 'mp4a',
 					contents: new Uint8Array([
 						Array(6).fill(0), // Reserved
-						0x00, 0x00, // Data reference index
-						Array(8).fill(0), // Reserved
+						u16(1), // Data reference index
+						u16(0), // Version
+						u16(0), // Revision level
+						u32(0), // Vendor
 						u16(track.info.numberOfChannels),
 						u16(track.info.bitDepth),
-						0x00, 0x00, // Pre-defined
-						0x00, 0x00, // Reserved
+						u16(0), // Compression ID
+						u16(0), // Packet size
 						fixed32(track.info.sampleRate),
 					].flat()),
 					children: [{
 						type: 'esds',
 						contents: new Uint8Array([
+							// https://stackoverflow.com/a/54803118
 							0x00, // Version
 							0x00, 0x00, 0x00, // Flags
-							...track.codecPrivate
-						])
+							u32(0x03808080), // TAG(3) = Object Descriptor ([2])
+							0x22, // length of this OD (which includes the next 2 tags)
+							u16(1), // ES_ID = 1
+							0x00, // flags etc = 0
+							u32(0x04808080), // TAG(4) = ES Descriptor ([2]) embedded in above OD
+							0x14, // length of this ESD
+							0x40, // MPEG-4 Audio
+							0x15, // stream type(6bits)=5 audio, flags(2bits)=1
+							0x00, 0x00, 0x00, // 24bit buffer size
+							u32(0x0001FC17), // max bitrate
+							u32(0x0001FC17), // avg bitrate
+							u32(0x05808080), // TAG(5) = ASC ([2],[3]) embedded in above OD
+							0x02, // length
+							track.codecPrivate[0], track.codecPrivate[1],
+							u32(0x06808080), // TAG(6)
+							0x01, // length
+							0x02 // data
+						].flat())
 					}]
 				}
 			]
@@ -499,9 +535,9 @@ class Mp4Muxer {
 				0x00, 0x00, 0x03, // Flags (enabled + in movie)
 				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Creation time
 				u32(Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET), // Modification time
-				u32(track.info.type === 'video' ? 1 : 2), // Track ID
+				u32(track.info.type === 'video' ? 1 : 1 + +!!this.#options.video), // Track ID
 				u32(0), // Reserved
-				u32(duration), // Duration
+				u32(globalDuration), // Duration
 				Array(8).fill(0), // Reserved
 				0x00, 0x00, // Layer
 				0x00, 0x00, // Alternate group

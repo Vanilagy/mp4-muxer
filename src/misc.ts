@@ -74,7 +74,7 @@ export const ascii = (text: string, nullTerminated = false) => {
 };
 
 export const timestampToUnits = (timestamp: number, timescale: number) => {
-	return Math.floor(timestamp * timescale);
+	return Math.round(timestamp * timescale);
 };
 
 export const last = <T>(arr: T[]) => {

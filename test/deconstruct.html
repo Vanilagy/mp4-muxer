@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+
+<style>
+	body {
+		font-family: sans-serif;
+	}
+</style>
+
+<input type="file">
+<button>Construct</button>
+<main></main>
+
+<script>
+	let contents;
+
+	const fileInput = document.querySelector('input');
+	fileInput.addEventListener('change', async () => {
+		let file = fileInput.files[0];
+		let buffer = await file.arrayBuffer();
+
+		let totalBytes = new Uint8Array(buffer);
+
+		const isAlphanumeric = (charCode) => {
+			return charCode && (
+				(charCode >= 48 && charCode <= 57)
+				|| (charCode >= 65 && charCode <= 90)
+				|| (charCode >= 97 && charCode <= 122));
+		};
+
+		const parseContents = (bytes) => {
+			let totalContents = [];
+			let view = new DataView(bytes.buffer);
+			let lastIndex = 0;
+
+			for (let i = 0; i < bytes.byteLength; i++) {
+				cond:
+				if (
+					isAlphanumeric(bytes[i+4])
+					&& isAlphanumeric(bytes[i+5])
+					&& isAlphanumeric(bytes[i+6])
+					&& isAlphanumeric(bytes[i+7])
+				) {
+					let size = view.getUint32(i, false);
+					if (size < 8) break cond;
+					if (i + size > bytes.byteLength) break cond;
+
+					let tag = String.fromCharCode(bytes[i + 4])
+						+ String.fromCharCode(bytes[i + 5])
+						+ String.fromCharCode(bytes[i + 6])
+						+ String.fromCharCode(bytes[i + 7]);
+					if ((tag.toLowerCase() !== tag) && tag !== 'avcC' && tag !== 'avc1') break cond;
+
+					if (i - lastIndex > 0) {
+						totalContents.push(bytes.slice(lastIndex, i));
+					}
+
+					let contents = tag === 'mdat'
+						? [bytes.slice(i + 8, i + size)]
+						: parseContents(bytes.slice(i + 8, i + size));
+
+					totalContents.push({
+						tag,
+						contents
+					});
+
+					lastIndex = i + size;
+					i += size - 1;
+				}
+			}
+
+			if (bytes.byteLength - lastIndex > 1) {
+				totalContents.push(bytes.slice(lastIndex));
+			}
+
+			return totalContents;
+		};
+		contents = parseContents(totalBytes);
+
+		document.querySelector('main').append(...contents.map(dataToDiv));
+	});
+
+	let crossedOut = new Set();
+	let modified = new Map();
+
+	const dataToDiv = (data) => {
+		if (data instanceof Uint8Array) {
+			let div = document.createElement('div');
+			div.setAttribute('contenteditable', true);
+			div.textContent = [...data].map(x => x.toString(16).padStart(2, '0').toLowerCase()).join('');
+			div.style.whiteSpace = 'nowrap';
+
+			div.addEventListener('keydown', () => {
+				setTimeout(() => {
+					modified.set(data, hexStringToUint8Array(div.textContent));
+
+					if (div.textContent.length % 2) {
+						div.style.background = 'lime';
+					} else {
+						div.style.background = '';
+					}
+				});
+			});
+
+			return div;
+		}
+
+		let div = document.createElement('div');
+		let span = document.createElement('span');
+		span.style.background = 'lightgray';
+		span.textContent = data.tag;
+		let children = document.createElement('div');
+		children.style.paddingLeft = '10px';
+
+		div.append(span);
+		div.append(children);
+		children.append(...data.contents.map(dataToDiv));
+
+		span.addEventListener('click', (e) => {
+			if (crossedOut.has(data)) {
+				crossedOut.delete(data);
+				span.style.textDecoration = '';
+				children.style.opacity = 1;
+			} else {
+				crossedOut.add(data);
+				span.style.textDecoration = 'line-through';
+				children.style.opacity = 0.3;
+			}
+
+			e.stopPropagation();
+		});
+
+		return div;
+	};
+
+	const hexStringToUint8Array = (hexString) => {
+		if (hexString.length % 2 !== 0) {
+			hexString += '0';
+		}
+
+		const byteCount = hexString.length / 2;
+		const uint8Array = new Uint8Array(byteCount);
+
+		for (let i = 0; i < byteCount; i++) {
+			const hexByte = hexString.slice(i * 2, i * 2 + 2);
+			uint8Array[i] = parseInt(hexByte, 16);
+		}
+
+		return uint8Array;
+	};
+
+	document.querySelector('button').addEventListener('click', () => {
+		let constructed = construct(contents);
+		downloadBlob(new Blob([new Uint8Array(constructed)]), 'edited.mp4');
+	});
+
+	const u32 = (value) => {
+		let bytes = new Uint8Array(4);
+		let view = new DataView(bytes.buffer);
+		view.setUint32(0, value, false);
+		return [...bytes];
+	};
+
+	const ascii = (text, nullTerminated = false) => {
+		let bytes = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+		if (nullTerminated) bytes.push(0x00);
+		return bytes;
+	};
+
+	const construct = (contents) => {
+		if (contents instanceof Uint8Array) {
+			if (modified.has(contents)) return [...modified.get(contents)];
+			else return [...contents];
+		} else if (Array.isArray(contents)) {
+			return contents.flatMap(construct);
+		} else {
+			let constructedContents = construct(contents.contents);
+			let size = constructedContents.length + 8;
+
+			return [
+				...u32(size),
+				...ascii(crossedOut.has(contents) ? 'free' : contents.tag),
+				...constructedContents
+			];
+		}
+	};
+
+	const downloadBlob = (blob, filename) => {
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		document.body.appendChild(a);
+		a.click();
+		setTimeout(() => {
+			document.body.removeChild(a);
+			URL.revokeObjectURL(url);
+	  	}, 0);
+	};
+</script>

@@ -4,6 +4,7 @@
 		"strict": true,
 		"strictNullChecks": false,
 		"noImplicitAny": true,
+		"noImplicitOverride": true,
 		"types": ["Node", "@types/wicg-file-system-access", "@types/dom-webcodecs"]
 	},
 	"include": [
