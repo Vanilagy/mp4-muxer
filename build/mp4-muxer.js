@@ -58,6 +58,7 @@ var Mp4Muxer = (() => {
   // src/main.ts
   var main_exports = {};
   __export(main_exports, {
+    GLOBAL_TIMESCALE: () => GLOBAL_TIMESCALE,
     default: () => main_default
   });
 
@@ -73,6 +74,12 @@ var Mp4Muxer = (() => {
     let view = new DataView(bytes.buffer);
     view.setInt16(0, value, false);
     return [...bytes];
+  };
+  var u24 = (value) => {
+    let bytes = new Uint8Array(4);
+    let view = new DataView(bytes.buffer);
+    view.setUint32(0, value, false);
+    return [...bytes].slice(1);
   };
   var u32 = (value) => {
     let bytes = new Uint8Array(4);
@@ -107,6 +114,376 @@ var Mp4Muxer = (() => {
     return arr && arr[arr.length - 1];
   };
 
+  // src/boxes.ts
+  var IDENTITY_MATRIX = [
+    65536,
+    0,
+    0,
+    0,
+    65536,
+    0,
+    0,
+    0,
+    1073741824
+  ].map(u32);
+  var box = (type, contents, children) => ({
+    type,
+    contents: contents && new Uint8Array(contents.flat(10)),
+    children
+  });
+  var fullBox = (type, version, flags, contents, children) => box(
+    type,
+    [version, u24(flags), contents != null ? contents : []],
+    children
+  );
+  var ftyp = () => box("ftyp", [
+    ascii("isom"),
+    // Major brand
+    u32(0),
+    // Minor version
+    ascii("isom"),
+    // Compatible brand 1
+    ascii("avc1"),
+    // Compatible brand 2
+    ascii("mp41")
+    // Compatible brand 3
+  ]);
+  var mdat = () => ({ type: "mdat", largeSize: true });
+  var moov = (tracks, creationTime) => box("moov", null, [
+    mvhd(creationTime, tracks),
+    ...tracks.map((x) => trak(x, creationTime))
+  ]);
+  var mvhd = (creationTime, tracks) => {
+    let duration = timestampToUnits(Math.max(
+      ...tracks.map((x) => last(x.samples).timestamp + last(x.samples).duration)
+    ), GLOBAL_TIMESCALE);
+    let nextTrackId = Math.max(...tracks.map((x) => x.id)) + 1;
+    return fullBox("mvhd", 0, 0, [
+      u32(creationTime),
+      // Creation time
+      u32(creationTime),
+      // Modification time
+      u32(GLOBAL_TIMESCALE),
+      // Timescale
+      u32(duration),
+      // Duration
+      fixed32(1),
+      // Preferred rate
+      fixed16(1),
+      // Preferred volume
+      Array(10).fill(0),
+      // Reserved
+      IDENTITY_MATRIX,
+      // Matrix
+      Array(24).fill(0),
+      // Pre-defined
+      u32(nextTrackId)
+      // Next track ID
+    ]);
+  };
+  var trak = (track, creationTime) => box("trak", null, [
+    tkhd(track, creationTime),
+    mdia(track, creationTime)
+  ]);
+  var tkhd = (track, creationTime) => {
+    let lastSample = last(track.samples);
+    let durationInGlobalTimescale = timestampToUnits(
+      lastSample.timestamp + lastSample.duration,
+      GLOBAL_TIMESCALE
+    );
+    return fullBox("tkhd", 0, 3, [
+      u32(creationTime),
+      // Creation time
+      u32(creationTime),
+      // Modification time
+      u32(track.id),
+      // Track ID
+      u32(0),
+      // Reserved
+      u32(durationInGlobalTimescale),
+      // Duration
+      Array(8).fill(0),
+      // Reserved
+      0,
+      0,
+      // Layer
+      0,
+      0,
+      // Alternate group
+      fixed16(track.info.type === "audio" ? 1 : 0),
+      // Volume
+      0,
+      0,
+      // Reserved
+      IDENTITY_MATRIX,
+      // Matrix
+      fixed32(track.info.type === "video" ? track.info.width : 0),
+      // Track width
+      fixed32(track.info.type === "video" ? track.info.height : 0)
+      // Track height
+    ]);
+  };
+  var mdia = (track, creationTime) => box("mdia", null, [
+    mdhd(track, creationTime),
+    hdlr(track.info.type === "video" ? "vide" : "soun"),
+    minf(track)
+  ]);
+  var mdhd = (track, creationTime) => {
+    let lastSample = last(track.samples);
+    let localDuration = timestampToUnits(
+      lastSample.timestamp + lastSample.duration,
+      track.timescale
+    );
+    return fullBox("mdhd", 0, 0, [
+      u32(creationTime),
+      // Creation time
+      u32(creationTime),
+      // Modification time
+      u32(track.timescale),
+      // Timescale
+      u32(localDuration),
+      // Duration
+      85,
+      196,
+      // Language ("und", undetermined)
+      u16(0)
+      // Quality
+    ]);
+  };
+  var hdlr = (componentSubtype) => fullBox("hdlr", 0, 0, [
+    ascii("mhlr"),
+    // Component type
+    ascii(componentSubtype),
+    // Component subtype
+    u32(0),
+    // Component manufacturer
+    u32(0),
+    // Component flags
+    u32(0),
+    // Component flags mask
+    ascii("mp4-muxer-hdlr")
+    // Component name
+  ]);
+  var minf = (track) => box("minf", null, [
+    track.info.type === "video" ? vmhd() : smhd(),
+    dinf(),
+    stbl(track)
+  ]);
+  var vmhd = () => fullBox("vmhd", 0, 1, [
+    u16(0),
+    // Graphics mode
+    u16(0),
+    // Opcolor R
+    u16(0),
+    // Opcolor G
+    u16(0)
+    // Opcolor B
+  ]);
+  var smhd = () => fullBox("smhd", 0, 0, [
+    0,
+    0,
+    // Balance
+    0,
+    0
+    // Reserved
+  ]);
+  var dinf = () => box("dinf", null, [
+    dref()
+  ]);
+  var dref = () => fullBox("dref", 0, 0, [
+    u32(1)
+    // Entry count
+  ], [
+    url()
+  ]);
+  var url = () => fullBox("url ", 0, 1);
+  var stbl = (track) => box("stbl", null, [
+    stsd(track),
+    stts(track),
+    stss(track),
+    stsc(track),
+    stsz(track),
+    stco(track)
+  ]);
+  var stsd = (track) => fullBox("stsd", 0, 0, [
+    u32(1)
+    // Entry count
+  ], [
+    track.info.type === "video" ? avc1(track) : mp4a(track)
+  ]);
+  var avc1 = (track) => box("avc1", [
+    Array(6).fill(0),
+    // Reserved
+    0,
+    1,
+    // Data reference index
+    0,
+    0,
+    // Pre-defined
+    0,
+    0,
+    // Reserved
+    Array(12).fill(0),
+    // Pre-defined
+    u16(track.info.width),
+    // Width
+    u16(track.info.height),
+    // Height
+    u32(4718592),
+    // Horizontal resolution
+    u32(4718592),
+    // Vertical resolution
+    u32(0),
+    // Reserved
+    u16(1),
+    // Frame count
+    Array(32).fill(0),
+    // Compressor name
+    u16(24),
+    // Depth
+    i16(65535)
+    // Pre-defined
+  ], [
+    avcC(track)
+  ]);
+  var avcC = (track) => box("avcC", [...track.codecPrivate]);
+  var mp4a = (track) => box("mp4a", [
+    Array(6).fill(0),
+    // Reserved
+    u16(1),
+    // Data reference index
+    u16(0),
+    // Version
+    u16(0),
+    // Revision level
+    u32(0),
+    // Vendor
+    u16(track.info.numberOfChannels),
+    // Number of channels
+    u16(track.info.bitDepth),
+    // Sample size (bits)
+    u16(0),
+    // Compression ID
+    u16(0),
+    // Packet size
+    fixed32(track.info.sampleRate)
+    // Sample rate
+  ], [
+    esds(track)
+  ]);
+  var esds = (track) => fullBox("esds", 0, 0, [
+    // https://stackoverflow.com/a/54803118
+    u32(58753152),
+    // TAG(3) = Object Descriptor ([2])
+    34,
+    // length of this OD (which includes the next 2 tags)
+    u16(1),
+    // ES_ID = 1
+    0,
+    // flags etc = 0
+    u32(75530368),
+    // TAG(4) = ES Descriptor ([2]) embedded in above OD
+    20,
+    // length of this ESD
+    64,
+    // MPEG-4 Audio
+    21,
+    // stream type(6bits)=5 audio, flags(2bits)=1
+    0,
+    0,
+    0,
+    // 24bit buffer size
+    u32(130071),
+    // max bitrate
+    u32(130071),
+    // avg bitrate
+    u32(92307584),
+    // TAG(5) = ASC ([2],[3]) embedded in above OD
+    2,
+    // length
+    track.codecPrivate[0],
+    track.codecPrivate[1],
+    u32(109084800),
+    // TAG(6)
+    1,
+    // length
+    2
+    // data
+  ]);
+  var stts = (track) => {
+    var _a, _b;
+    let current = [];
+    let entries = [];
+    for (let sample of track.samples) {
+      current.push(sample);
+      if (current.length === 1)
+        continue;
+      let referenceDelta = timestampToUnits(current[1].timestamp - current[0].timestamp, track.timescale);
+      let newDelta = timestampToUnits(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
+      if (newDelta !== referenceDelta) {
+        entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
+        current = current.slice(-2);
+      }
+    }
+    entries.push({
+      sampleCount: current.length,
+      sampleDelta: timestampToUnits(((_b = (_a = current[1]) == null ? void 0 : _a.timestamp) != null ? _b : current[0].timestamp) - current[0].timestamp, track.timescale)
+    });
+    return fullBox("stts", 0, 0, [
+      u32(entries.length),
+      // Number of entries
+      entries.map((x) => [u32(x.sampleCount), u32(x.sampleDelta)])
+      // Time-to-sample table
+    ]);
+  };
+  var stss = (track) => {
+    if (track.samples.every((x) => x.type === "key"))
+      return null;
+    let keySamples = [...track.samples.entries()].filter(([, sample]) => sample.type === "key");
+    return fullBox("stss", 0, 0, [
+      u32(keySamples.length),
+      // Number of entries
+      keySamples.map(([index]) => u32(index + 1))
+      // Sync sample table
+    ]);
+  };
+  var stsc = (track) => {
+    let compactlyCodedChunks = [];
+    for (let i = 0; i < track.writtenChunks.length; i++) {
+      let next = track.writtenChunks[i];
+      if (compactlyCodedChunks.length === 0 || last(compactlyCodedChunks).samplesPerChunk !== next.sampleCount) {
+        compactlyCodedChunks.push({ firstChunk: i + 1, samplesPerChunk: next.sampleCount });
+      }
+    }
+    return fullBox("stsc", 0, 0, [
+      u32(compactlyCodedChunks.length),
+      // Number of entries
+      compactlyCodedChunks.map((x) => [
+        // Sample-to-chunk table
+        u32(x.firstChunk),
+        // First chunk
+        u32(x.samplesPerChunk),
+        // Samples per chunk
+        u32(1)
+        // Sample description index
+      ])
+    ]);
+  };
+  var stsz = (track) => fullBox("stsz", 0, 0, [
+    u32(0),
+    // Sample size (0 means non-constant size)
+    u32(track.samples.length),
+    // Number of entries
+    track.samples.map((x) => u32(x.size))
+    // Sample size table
+  ]);
+  var stco = (track) => fullBox("stco", 0, 0, [
+    u32(track.writtenChunks.length),
+    // Number of entries
+    track.writtenChunks.map((x) => u32(x.offset))
+    // Chunk offset table
+  ]);
+
   // src/write_target.ts
   var _helper, _helperView;
   var WriteTarget = class {
@@ -139,39 +516,39 @@ var Mp4Muxer = (() => {
         this.write(__privateGet(this, _helper).subarray(0, text.length % 8));
       }
     }
-    writeBox(box) {
+    writeBox(box2) {
       var _a, _b;
-      this.offsets.set(box, this.pos);
-      if (box.contents && !box.children) {
-        this.writeBoxHeader(box, (_a = box.size) != null ? _a : box.contents.byteLength + 8);
-        this.write(box.contents);
+      this.offsets.set(box2, this.pos);
+      if (box2.contents && !box2.children) {
+        this.writeBoxHeader(box2, (_a = box2.size) != null ? _a : box2.contents.byteLength + 8);
+        this.write(box2.contents);
       } else {
         let startPos = this.pos;
-        this.writeBoxHeader(box, 0);
-        if (box.contents)
-          this.write(box.contents);
-        if (box.children) {
-          for (let child of box.children)
+        this.writeBoxHeader(box2, 0);
+        if (box2.contents)
+          this.write(box2.contents);
+        if (box2.children) {
+          for (let child of box2.children)
             if (child)
               this.writeBox(child);
         }
         let endPos = this.pos;
-        let size = (_b = box.size) != null ? _b : endPos - startPos;
+        let size = (_b = box2.size) != null ? _b : endPos - startPos;
         this.pos = startPos;
-        this.writeBoxHeader(box, size);
+        this.writeBoxHeader(box2, size);
         this.pos = endPos;
       }
     }
-    writeBoxHeader(box, size) {
-      this.writeU32(box.largeSize ? 1 : size);
-      this.writeAscii(box.type);
-      if (box.largeSize)
+    writeBoxHeader(box2, size) {
+      this.writeU32(box2.largeSize ? 1 : size);
+      this.writeAscii(box2.type);
+      if (box2.largeSize)
         this.writeU64(size);
     }
-    patchBox(box) {
+    patchBox(box2) {
       let endPos = this.pos;
-      this.pos = this.offsets.get(box);
-      this.writeBox(box);
+      this.pos = this.offsets.get(box2);
+      this.writeBox(box2);
       this.pos = endPos;
     }
   };
@@ -373,7 +750,7 @@ var Mp4Muxer = (() => {
   var MAX_CHUNK_LENGTH = 5e5;
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
   var GLOBAL_TIMESCALE = 1e3;
-  var _options, _target, _mdat, _videoTrack, _audioTrack, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _ensureNotFinalized, ensureNotFinalized_fn, _createMovieBox, createMovieBox_fn, _createTrackBox, createTrackBox_fn;
+  var _options, _target, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _ensureNotFinalized, ensureNotFinalized_fn;
   var Mp4Muxer = class {
     constructor(options) {
       __privateAdd(this, _validateOptions);
@@ -382,13 +759,12 @@ var Mp4Muxer = (() => {
       __privateAdd(this, _addSampleToTrack);
       __privateAdd(this, _writeCurrentChunk);
       __privateAdd(this, _ensureNotFinalized);
-      __privateAdd(this, _createMovieBox);
-      __privateAdd(this, _createTrackBox);
       __privateAdd(this, _options, void 0);
       __privateAdd(this, _target, void 0);
       __privateAdd(this, _mdat, void 0);
       __privateAdd(this, _videoTrack, null);
       __privateAdd(this, _audioTrack, null);
+      __privateAdd(this, _creationTime, Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET);
       __privateAdd(this, _finalized, false);
       __privateMethod(this, _validateOptions, validateOptions_fn).call(this, options);
       __privateSet(this, _options, __spreadValues({
@@ -427,7 +803,7 @@ var Mp4Muxer = (() => {
       let mdatSize = __privateGet(this, _target).pos - mdatPos;
       __privateGet(this, _mdat).size = mdatSize;
       __privateGet(this, _target).patchBox(__privateGet(this, _mdat));
-      let movieBox = __privateMethod(this, _createMovieBox, createMovieBox_fn).call(this);
+      let movieBox = moov([__privateGet(this, _videoTrack), __privateGet(this, _audioTrack)].filter(Boolean), __privateGet(this, _creationTime));
       __privateGet(this, _target).writeBox(movieBox);
       let buffer = __privateGet(this, _target).finalize();
       return buffer;
@@ -438,6 +814,7 @@ var Mp4Muxer = (() => {
   _mdat = new WeakMap();
   _videoTrack = new WeakMap();
   _audioTrack = new WeakMap();
+  _creationTime = new WeakMap();
   _finalized = new WeakMap();
   _validateOptions = new WeakSet();
   validateOptions_fn = function(options) {
@@ -447,40 +824,8 @@ var Mp4Muxer = (() => {
   };
   _writeHeader = new WeakSet();
   writeHeader_fn = function() {
-    __privateGet(this, _target).writeBox({
-      type: "ftyp" /* FileType */,
-      contents: new Uint8Array([
-        105,
-        115,
-        111,
-        109,
-        // isom
-        0,
-        0,
-        0,
-        0,
-        // Minor version 0
-        105,
-        115,
-        111,
-        109,
-        // isom
-        97,
-        118,
-        99,
-        49,
-        // avc1
-        109,
-        112,
-        52,
-        49
-        // mp41
-      ])
-    });
-    __privateSet(this, _mdat, {
-      type: "mdat" /* MovieData */,
-      largeSize: true
-    });
+    __privateGet(this, _target).writeBox(ftyp());
+    __privateSet(this, _mdat, mdat());
     __privateGet(this, _target).writeBox(__privateGet(this, _mdat));
   };
   _prepareTracks = new WeakSet();
@@ -488,11 +833,14 @@ var Mp4Muxer = (() => {
     var _a;
     if (__privateGet(this, _options).video) {
       __privateSet(this, _videoTrack, {
+        id: 1,
         info: {
           type: "video",
           width: __privateGet(this, _options).video.width,
           height: __privateGet(this, _options).video.height
         },
+        timescale: 720,
+        // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates
         codecPrivate: null,
         samples: [],
         writtenChunks: [],
@@ -501,12 +849,14 @@ var Mp4Muxer = (() => {
     }
     if (__privateGet(this, _options).audio) {
       __privateSet(this, _audioTrack, {
+        id: __privateGet(this, _options).video ? 2 : 1,
         info: {
           type: "audio",
           numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
           sampleRate: __privateGet(this, _options).audio.sampleRate,
           bitDepth: (_a = __privateGet(this, _options).audio.bitDepth) != null ? _a : 16
         },
+        timescale: __privateGet(this, _options).audio.sampleRate,
         codecPrivate: null,
         samples: [],
         writtenChunks: [],
@@ -551,464 +901,6 @@ var Mp4Muxer = (() => {
     if (__privateGet(this, _finalized)) {
       throw new Error("Cannot add new video or audio chunks after the file has been finalized.");
     }
-  };
-  _createMovieBox = new WeakSet();
-  createMovieBox_fn = function() {
-    var _a, _b;
-    let lastVideoSample = last((_a = __privateGet(this, _videoTrack)) == null ? void 0 : _a.samples);
-    let lastAudioSample = last((_b = __privateGet(this, _audioTrack)) == null ? void 0 : _b.samples);
-    let duration = timestampToUnits(Math.max(
-      lastVideoSample ? lastVideoSample.timestamp + lastVideoSample.duration : 0,
-      lastAudioSample ? lastAudioSample.timestamp + lastAudioSample.duration : 0
-    ), GLOBAL_TIMESCALE);
-    let videoTrackBox = __privateGet(this, _videoTrack) && __privateMethod(this, _createTrackBox, createTrackBox_fn).call(this, __privateGet(this, _videoTrack));
-    let audioTrackBox = __privateGet(this, _audioTrack) && __privateMethod(this, _createTrackBox, createTrackBox_fn).call(this, __privateGet(this, _audioTrack));
-    let movieHeaderBox = {
-      type: "mvhd" /* MovieHeader */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Creation time
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Modification time
-        u32(GLOBAL_TIMESCALE),
-        u32(duration),
-        fixed32(1),
-        // Preferred rate
-        fixed16(1),
-        // Preferred volume
-        Array(10).fill(0),
-        // Reserved
-        [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
-        Array(24).fill(0),
-        // Pre-defined
-        u32(+!!__privateGet(this, _options).audio + +!!__privateGet(this, _options).video + 1)
-        // Next track ID
-      ].flat())
-    };
-    let movieBox = {
-      type: "moov" /* Movie */,
-      children: [movieHeaderBox, videoTrackBox, audioTrackBox]
-    };
-    return movieBox;
-  };
-  _createTrackBox = new WeakSet();
-  createTrackBox_fn = function(track) {
-    var _a, _b;
-    let timescale = track.info.type === "video" ? 960 : track.info.sampleRate;
-    let current = [];
-    let entries = [];
-    for (let sample of track.samples) {
-      current.push(sample);
-      if (current.length === 1)
-        continue;
-      let referenceDelta = timestampToUnits(current[1].timestamp - current[0].timestamp, timescale);
-      let newDelta = timestampToUnits(sample.timestamp - current[current.length - 2].timestamp, timescale);
-      if (newDelta !== referenceDelta) {
-        entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
-        current = current.slice(-2);
-      }
-    }
-    entries.push({
-      sampleCount: current.length,
-      sampleDelta: timestampToUnits(((_b = (_a = current[1]) == null ? void 0 : _a.timestamp) != null ? _b : current[0].timestamp) - current[0].timestamp, timescale)
-    });
-    let timeToSampleBox = {
-      type: "stts" /* TimeToSample */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(entries.length),
-        ...entries.flatMap((x) => [u32(x.sampleCount), u32(x.sampleDelta)])
-      ].flat())
-    };
-    let syncSampleBox = null;
-    if (!track.samples.every((x) => x.type === "key")) {
-      let keySamples = [...track.samples.entries()].filter(([, sample]) => sample.type === "key");
-      syncSampleBox = {
-        type: "stss" /* SyncSample */,
-        contents: new Uint8Array([
-          0,
-          // Version
-          0,
-          0,
-          0,
-          // Flags
-          u32(keySamples.length),
-          // Entry count
-          keySamples.flatMap(([index]) => u32(index + 1))
-          // Sample numbers
-        ].flat())
-      };
-    }
-    let compactlyCodedChunks = [];
-    for (let i = 0; i < track.writtenChunks.length; i++) {
-      let next = track.writtenChunks[i];
-      if (compactlyCodedChunks.length === 0 || last(compactlyCodedChunks).samplesPerChunk !== next.sampleCount) {
-        compactlyCodedChunks.push({ firstChunk: i + 1, samplesPerChunk: next.sampleCount });
-      }
-    }
-    let sampleToChunkBox = {
-      type: "stsc" /* SampleToChunk */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(compactlyCodedChunks.length),
-        // Entry count
-        ...compactlyCodedChunks.flatMap((x) => [
-          u32(x.firstChunk),
-          u32(x.samplesPerChunk),
-          u32(1)
-          // Sample description index
-        ])
-      ].flat())
-    };
-    let sampleSizeBox = {
-      type: "stsz" /* SampleSize */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(0),
-        // Sample size
-        u32(track.samples.length),
-        // Sample count
-        track.samples.flatMap((x) => u32(x.size))
-      ].flat())
-    };
-    let chunkOffsetBox = {
-      type: "stco" /* ChunkOffset */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags,
-        u32(track.writtenChunks.length),
-        // Entry count
-        track.writtenChunks.flatMap((x) => u32(x.offset))
-      ].flat())
-    };
-    let lastSample = last(track.samples);
-    let localDuration = timestampToUnits(
-      lastSample.timestamp + lastSample.duration,
-      timescale
-    );
-    let globalDuration = timestampToUnits(
-      lastSample.timestamp + lastSample.duration,
-      GLOBAL_TIMESCALE
-    );
-    let mediaHeaderBox = {
-      type: "mdhd" /* MediaHeader */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Creation time
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Modification time
-        u32(timescale),
-        u32(localDuration),
-        85,
-        196,
-        // Language ("und", undetermined)
-        0,
-        0
-        // Pre-defined
-      ].flat())
-    };
-    let handlerReferenceBox = {
-      type: "hdlr" /* HandlerReference */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(0),
-        // Pre-defined
-        ascii(track.info.type === "video" ? "vide" : "soun"),
-        // Component subtype
-        Array(12).fill(0),
-        // Reserved
-        ascii(track.info.type === "video" ? "Video track" : "Audio track", true)
-      ].flat())
-    };
-    let mediaInformationHeaderBox = track.info.type === "video" ? {
-      type: "vmhd" /* VideoMediaInformationHeader */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        1,
-        // Flags
-        0,
-        0,
-        // Graphics mode
-        0,
-        0,
-        // Opcolor R
-        0,
-        0,
-        // Opcolor G
-        0,
-        0
-        // Opcolor B
-      ])
-    } : {
-      type: "smhd" /* SoundMediaInformationHeader */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        0,
-        0,
-        // Balance
-        0,
-        0
-        // Reserved
-      ])
-    };
-    let dataInformationBox = {
-      type: "dinf" /* DataInformation */,
-      children: [{
-        type: "dref" /* DataReference */,
-        contents: new Uint8Array([
-          0,
-          // Version
-          0,
-          0,
-          0,
-          // Flags
-          u32(1)
-          // Entry count
-        ].flat()),
-        children: [{
-          type: "url ",
-          contents: new Uint8Array([
-            0,
-            // Version
-            0,
-            0,
-            1
-            // Flags (with self-reference enabled)
-          ].flat())
-        }]
-      }]
-    };
-    let sampleDescriptionBox = {
-      type: "stsd" /* SampleDescription */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        0,
-        // Flags
-        u32(1)
-        // Entry count
-      ].flat()),
-      children: [
-        track.info.type === "video" ? {
-          type: "avc1",
-          contents: new Uint8Array([
-            Array(6).fill(0),
-            // Reserved
-            0,
-            1,
-            // Data reference index
-            0,
-            0,
-            // Pre-defined
-            0,
-            0,
-            // Reserved
-            Array(12).fill(0),
-            // Pre-defined
-            u16(__privateGet(this, _options).video.width),
-            // Width
-            u16(__privateGet(this, _options).video.height),
-            // Height
-            u32(4718592),
-            // Horizontal resolution
-            u32(4718592),
-            // Vertical resolution
-            u32(0),
-            // Reserved
-            u16(1),
-            // Frame count
-            Array(32).fill(0),
-            // Compressor name
-            u16(24),
-            // Depth
-            i16(65535)
-            // Pre-defined
-          ].flat()),
-          children: [{
-            type: "avcC",
-            contents: track.codecPrivate
-          }]
-        } : {
-          type: "mp4a",
-          contents: new Uint8Array([
-            Array(6).fill(0),
-            // Reserved
-            u16(1),
-            // Data reference index
-            u16(0),
-            // Version
-            u16(0),
-            // Revision level
-            u32(0),
-            // Vendor
-            u16(track.info.numberOfChannels),
-            u16(track.info.bitDepth),
-            u16(0),
-            // Compression ID
-            u16(0),
-            // Packet size
-            fixed32(track.info.sampleRate)
-          ].flat()),
-          children: [{
-            type: "esds",
-            contents: new Uint8Array([
-              // https://stackoverflow.com/a/54803118
-              0,
-              // Version
-              0,
-              0,
-              0,
-              // Flags
-              u32(58753152),
-              // TAG(3) = Object Descriptor ([2])
-              34,
-              // length of this OD (which includes the next 2 tags)
-              u16(1),
-              // ES_ID = 1
-              0,
-              // flags etc = 0
-              u32(75530368),
-              // TAG(4) = ES Descriptor ([2]) embedded in above OD
-              20,
-              // length of this ESD
-              64,
-              // MPEG-4 Audio
-              21,
-              // stream type(6bits)=5 audio, flags(2bits)=1
-              0,
-              0,
-              0,
-              // 24bit buffer size
-              u32(130071),
-              // max bitrate
-              u32(130071),
-              // avg bitrate
-              u32(92307584),
-              // TAG(5) = ASC ([2],[3]) embedded in above OD
-              2,
-              // length
-              track.codecPrivate[0],
-              track.codecPrivate[1],
-              u32(109084800),
-              // TAG(6)
-              1,
-              // length
-              2
-              // data
-            ].flat())
-          }]
-        }
-      ]
-    };
-    let sampleTableBox = {
-      type: "stbl" /* SampleTable */,
-      children: [
-        sampleDescriptionBox,
-        timeToSampleBox,
-        syncSampleBox,
-        sampleToChunkBox,
-        sampleSizeBox,
-        chunkOffsetBox
-      ]
-    };
-    let mediaInformationBox = {
-      type: "minf" /* MediaInformation */,
-      children: [mediaInformationHeaderBox, dataInformationBox, sampleTableBox]
-    };
-    let mediaBox = {
-      type: "mdia" /* Media */,
-      children: [mediaHeaderBox, handlerReferenceBox, mediaInformationBox]
-    };
-    let trackHeaderBox = {
-      type: "tkhd" /* TrackHeader */,
-      contents: new Uint8Array([
-        0,
-        // Version
-        0,
-        0,
-        3,
-        // Flags (enabled + in movie)
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Creation time
-        u32(Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET),
-        // Modification time
-        u32(track.info.type === "video" ? 1 : 1 + +!!__privateGet(this, _options).video),
-        // Track ID
-        u32(0),
-        // Reserved
-        u32(globalDuration),
-        // Duration
-        Array(8).fill(0),
-        // Reserved
-        0,
-        0,
-        // Layer
-        0,
-        0,
-        // Alternate group
-        fixed16(track.info.type === "audio" ? 1 : 0),
-        // Volume
-        0,
-        0,
-        // Reserved
-        [65536, 0, 0, 0, 65536, 0, 0, 0, 1073741824].flatMap(u32),
-        fixed32(track.info.type === "video" ? track.info.width : 0),
-        // Track width
-        fixed32(track.info.type === "video" ? track.info.height : 0)
-        // Track height
-      ].flat())
-    };
-    let trackBox = {
-      type: "trak" /* Track */,
-      children: [trackHeaderBox, mediaBox]
-    };
-    return trackBox;
   };
   var main_default = Mp4Muxer;
   return __toCommonJS(main_exports);

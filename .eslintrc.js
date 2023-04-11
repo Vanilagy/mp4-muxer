@@ -36,6 +36,7 @@ module.exports = {
 		"no-fallthrough": ["off"],
 		"max-len": ["warn", { "code": 120, "tabWidth": 4 }],
 		"no-undef": ["off"],
-		"no-mixed-spaces-and-tabs": ["error", "smart-tabs"]
+		"no-mixed-spaces-and-tabs": ["error", "smart-tabs"],
+		"@typescript-eslint/comma-dangle": ["warn"]
 	}
 };
