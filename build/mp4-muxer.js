@@ -769,7 +769,7 @@ var Mp4Muxer = (() => {
 
   // src/main.ts
   var TIMESTAMP_OFFSET = 2082848400;
-  var MAX_CHUNK_LENGTH = 5e5;
+  var MAX_CHUNK_DURATION = 0.5;
   var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
   var SUPPORTED_AUDIO_CODECS = ["aac"];
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
@@ -899,10 +899,16 @@ var Mp4Muxer = (() => {
   _addSampleToTrack = new WeakSet();
   addSampleToTrack_fn = function(track, sample, meta) {
     var _a;
-    if (!track.currentChunk || sample.timestamp - track.currentChunk.startTimestamp >= MAX_CHUNK_LENGTH) {
+    let timestampInSeconds = sample.timestamp / 1e6;
+    let durationInSeconds = sample.duration / 1e6;
+    if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
       if (track.currentChunk)
         __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, track);
-      track.currentChunk = { startTimestamp: sample.timestamp, sampleData: [], sampleCount: 0 };
+      track.currentChunk = {
+        startTimestamp: timestampInSeconds,
+        sampleData: [],
+        sampleCount: 0
+      };
     }
     let data = new Uint8Array(sample.byteLength);
     sample.copyTo(data);
@@ -912,8 +918,8 @@ var Mp4Muxer = (() => {
       track.codecPrivate = new Uint8Array(meta.decoderConfig.description);
     }
     track.samples.push({
-      timestamp: sample.timestamp / 1e6,
-      duration: sample.duration / 1e6,
+      timestamp: timestampInSeconds,
+      duration: durationInSeconds,
       size: data.byteLength,
       type: sample.type
     });

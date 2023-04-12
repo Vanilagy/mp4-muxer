@@ -7,7 +7,7 @@ import {
 } from "./write_target";
 
 const TIMESTAMP_OFFSET = 2_082_848_400; // Seconds between Jan 1 1904 and Jan 1 1970
-const MAX_CHUNK_LENGTH = 500_000; // In microseconds
+const MAX_CHUNK_DURATION = 0.5; // In seconds
 const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc'] as const;
 const SUPPORTED_AUDIO_CODECS = ['aac'] as const;
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'permissive'] as const;
@@ -175,9 +175,17 @@ class Mp4Muxer {
 		sample: EncodedVideoChunk | EncodedAudioChunk,
 		meta: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata
 	) {
-		if (!track.currentChunk || sample.timestamp - track.currentChunk.startTimestamp >= MAX_CHUNK_LENGTH) {
+		let timestampInSeconds = sample.timestamp / 1e6;
+		let durationInSeconds = sample.duration / 1e6;
+
+		if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
 			if (track.currentChunk) this.#writeCurrentChunk(track);
-			track.currentChunk = { startTimestamp: sample.timestamp, sampleData: [], sampleCount: 0 };
+
+			track.currentChunk = {
+				startTimestamp: timestampInSeconds,
+				sampleData: [],
+				sampleCount: 0
+			};
 		}
 
 		let data = new Uint8Array(sample.byteLength);
@@ -191,8 +199,8 @@ class Mp4Muxer {
 		}
 
 		track.samples.push({
-			timestamp: sample.timestamp / 1e6,
-			duration: sample.duration / 1e6,
+			timestamp: timestampInSeconds,
+			duration: durationInSeconds,
 			size: data.byteLength,
 			type: sample.type
 		});
