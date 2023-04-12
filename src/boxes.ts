@@ -41,13 +41,22 @@ export const fullBox = (
  * File Type Compatibility Box: Allows the reader to determine whether this is a type of file that the
  * reader understands.
  */
-export const ftyp = () => box('ftyp', [
-	ascii('isom'), // Major brand
-	u32(0), // Minor version
-	ascii('isom'), // Compatible brand 1
-	ascii('avc1'), // Compatible brand 2
-	ascii('mp41') // Compatible brand 3
-]);
+export const ftyp = (holdsHevc: boolean) => {
+	if (holdsHevc) return box('ftyp', [
+		ascii('isom'), // Major brand
+		u32(0), // Minor version
+		ascii('iso4'), // Compatible brand 1
+		ascii('hvc1') // Compatible brand 2
+	]);
+
+	return box('ftyp', [
+		ascii('isom'), // Major brand
+		u32(0), // Minor version
+		ascii('isom'), // Compatible brand 1
+		ascii('avc1'), // Compatible brand 2
+		ascii('mp41') // Compatible brand 3
+	]);
+};
 
 /** Movie Sample Data Box. Contains the actual frames/samples of the media. */
 export const mdat = (): Box => ({ type: 'mdat', largeSize: true });
@@ -225,12 +234,24 @@ export const stsd = (track: Track) => fullBox('stsd', 0, 0, [
 	u32(1) // Entry count
 ], [
 	track.info.type === 'video'
-		? avc1(track as Track & { info: { type: 'video' } })
-		: mp4a(track as Track & { info: { type: 'audio' } })
+		? videoSampleDescription(
+			track.info.codec === 'avc' ? 'avc1' : 'hvc1',
+			track as Track & { info: { type: 'video' } },
+			track.info.codec === 'avc' ? avcC(track) : hvcC(track)
+		)
+		: soundSampleDescription(
+			'mp4a',
+			track as Track & { info: { type: 'audio' } },
+			esds(track)
+		)
 ]);
 
 /** Video Sample Description Box: Contains information that defines how to interpret video media data. */
-export const avc1 = (track: Track & { info: { type: 'video' } }) => box('avc1', [
+export const videoSampleDescription = (
+	compressionType: string,
+	track: Track & { info: { type: 'video' } },
+	child: Box
+) => box(compressionType, [
 	Array(6).fill(0), // Reserved
 	0x00, 0x01, // Data reference index
 	0x00, 0x00, // Pre-defined
@@ -246,26 +267,33 @@ export const avc1 = (track: Track & { info: { type: 'video' } }) => box('avc1', 
 	u16(0x0018), // Depth
 	i16(0xffff) // Pre-defined
 ], [
-	avcC(track)
+	child
 ]);
 
-/** Provides additional information to the decoder. */
+/** AVC Configuration Box: Provides additional information to the decoder. */
 export const avcC = (track: Track) => box('avcC', [...track.codecPrivate]);
 
+/** HEVC Configuration Box: Provides additional information to the decoder. */
+export const hvcC = (track: Track) => box('hvcC', [...track.codecPrivate]);
+
 /** Sound Sample Description Box: Contains information that defines how to interpret sound media data. */
-export const mp4a = (track: Track & { info: { type: 'audio' } }) => box('mp4a', [
+export const soundSampleDescription = (
+	compressionType: string,
+	track: Track & { info: { type: 'audio' } },
+	child: Box
+) => box('compressionType', [
 	Array(6).fill(0), // Reserved
 	u16(1), // Data reference index
 	u16(0), // Version
 	u16(0), // Revision level
 	u32(0), // Vendor
 	u16(track.info.numberOfChannels), // Number of channels
-	u16(track.info.bitDepth), // Sample size (bits)
+	u16(16), // Sample size (bits)
 	u16(0), // Compression ID
 	u16(0), // Packet size
 	fixed32(track.info.sampleRate) // Sample rate
 ], [
-	esds(track)
+	child
 ]);
 
 /** MPEG-4 Elementary Stream Descriptor Box. */

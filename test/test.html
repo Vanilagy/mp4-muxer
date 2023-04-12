@@ -10,10 +10,12 @@
 		target: 'buffer',
 		
 		video: {
+			codec: 'avc',
 			width,
 			height
 		},
 		audio: {
+			codec: 'aac',
 			numberOfChannels,
 			sampleRate
 		}
@@ -36,7 +38,7 @@
 		width: width,
 		height: height,
 		bitrate: 1e6,
-		framerate: 10,
+		framerate: 10
 	});
 
 	let audioEncoder = new AudioEncoder({

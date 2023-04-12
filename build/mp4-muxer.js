@@ -136,18 +136,31 @@ var Mp4Muxer = (() => {
     [version, u24(flags), contents != null ? contents : []],
     children
   );
-  var ftyp = () => box("ftyp", [
-    ascii("isom"),
-    // Major brand
-    u32(0),
-    // Minor version
-    ascii("isom"),
-    // Compatible brand 1
-    ascii("avc1"),
-    // Compatible brand 2
-    ascii("mp41")
-    // Compatible brand 3
-  ]);
+  var ftyp = (holdsHevc) => {
+    if (holdsHevc)
+      return box("ftyp", [
+        ascii("isom"),
+        // Major brand
+        u32(0),
+        // Minor version
+        ascii("iso4"),
+        // Compatible brand 1
+        ascii("hvc1")
+        // Compatible brand 2
+      ]);
+    return box("ftyp", [
+      ascii("isom"),
+      // Major brand
+      u32(0),
+      // Minor version
+      ascii("isom"),
+      // Compatible brand 1
+      ascii("avc1"),
+      // Compatible brand 2
+      ascii("mp41")
+      // Compatible brand 3
+    ]);
+  };
   var mdat = () => ({ type: "mdat", largeSize: true });
   var moov = (tracks, creationTime) => box("moov", null, [
     mvhd(creationTime, tracks),
@@ -309,9 +322,17 @@ var Mp4Muxer = (() => {
     u32(1)
     // Entry count
   ], [
-    track.info.type === "video" ? avc1(track) : mp4a(track)
+    track.info.type === "video" ? videoSampleDescription(
+      track.info.codec === "avc" ? "avc1" : "hvc1",
+      track,
+      track.info.codec === "avc" ? avcC(track) : hvcC(track)
+    ) : soundSampleDescription(
+      "mp4a",
+      track,
+      esds(track)
+    )
   ]);
-  var avc1 = (track) => box("avc1", [
+  var videoSampleDescription = (compressionType, track, child) => box(compressionType, [
     Array(6).fill(0),
     // Reserved
     0,
@@ -344,10 +365,11 @@ var Mp4Muxer = (() => {
     i16(65535)
     // Pre-defined
   ], [
-    avcC(track)
+    child
   ]);
   var avcC = (track) => box("avcC", [...track.codecPrivate]);
-  var mp4a = (track) => box("mp4a", [
+  var hvcC = (track) => box("hvcC", [...track.codecPrivate]);
+  var soundSampleDescription = (compressionType, track, child) => box("compressionType", [
     Array(6).fill(0),
     // Reserved
     u16(1),
@@ -360,7 +382,7 @@ var Mp4Muxer = (() => {
     // Vendor
     u16(track.info.numberOfChannels),
     // Number of channels
-    u16(track.info.bitDepth),
+    u16(16),
     // Sample size (bits)
     u16(0),
     // Compression ID
@@ -369,7 +391,7 @@ var Mp4Muxer = (() => {
     fixed32(track.info.sampleRate)
     // Sample rate
   ], [
-    esds(track)
+    child
   ]);
   var esds = (track) => fullBox("esds", 0, 0, [
     // https://stackoverflow.com/a/54803118
@@ -748,6 +770,8 @@ var Mp4Muxer = (() => {
   // src/main.ts
   var TIMESTAMP_OFFSET = 2082848400;
   var MAX_CHUNK_LENGTH = 5e5;
+  var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
+  var SUPPORTED_AUDIO_CODECS = ["aac"];
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
   var GLOBAL_TIMESCALE = 1e3;
   var _options, _target, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _ensureNotFinalized, ensureNotFinalized_fn;
@@ -818,24 +842,32 @@ var Mp4Muxer = (() => {
   _finalized = new WeakMap();
   _validateOptions = new WeakSet();
   validateOptions_fn = function(options) {
+    if (options.video && !SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
+      throw new Error(`Unsupported video codec: ${options.video.codec}`);
+    }
+    if (options.audio && !SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
+      throw new Error(`Unsupported audio codec: ${options.audio.codec}`);
+    }
     if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
       throw new Error(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
     }
   };
   _writeHeader = new WeakSet();
   writeHeader_fn = function() {
-    __privateGet(this, _target).writeBox(ftyp());
+    var _a;
+    let holdsHevc = ((_a = __privateGet(this, _options).video) == null ? void 0 : _a.codec) === "hevc";
+    __privateGet(this, _target).writeBox(ftyp(holdsHevc));
     __privateSet(this, _mdat, mdat());
     __privateGet(this, _target).writeBox(__privateGet(this, _mdat));
   };
   _prepareTracks = new WeakSet();
   prepareTracks_fn = function() {
-    var _a;
     if (__privateGet(this, _options).video) {
       __privateSet(this, _videoTrack, {
         id: 1,
         info: {
           type: "video",
+          codec: __privateGet(this, _options).video.codec,
           width: __privateGet(this, _options).video.width,
           height: __privateGet(this, _options).video.height
         },
@@ -852,9 +884,9 @@ var Mp4Muxer = (() => {
         id: __privateGet(this, _options).video ? 2 : 1,
         info: {
           type: "audio",
+          codec: __privateGet(this, _options).audio.codec,
           numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
-          sampleRate: __privateGet(this, _options).audio.sampleRate,
-          bitDepth: (_a = __privateGet(this, _options).audio.bitDepth) != null ? _a : 16
+          sampleRate: __privateGet(this, _options).audio.sampleRate
         },
         timescale: __privateGet(this, _options).audio.sampleRate,
         codecPrivate: null,

@@ -8,6 +8,8 @@ import {
 
 const TIMESTAMP_OFFSET = 2_082_848_400; // Seconds between Jan 1 1904 and Jan 1 1970
 const MAX_CHUNK_LENGTH = 500_000; // In microseconds
+const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc'] as const;
+const SUPPORTED_AUDIO_CODECS = ['aac'] as const;
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'permissive'] as const;
 export const GLOBAL_TIMESCALE = 1000;
 
@@ -17,14 +19,14 @@ interface Mp4MuxerOptions {
 		| ((data: Uint8Array, offset: number, done: boolean) => void)
 		| FileSystemWritableFileStream,
 	video?: {
+		codec: typeof SUPPORTED_VIDEO_CODECS[number],
 		width: number,
 		height: number
-		frameRate?: number
 	},
 	audio?: {
+		codec: typeof SUPPORTED_AUDIO_CODECS[number],
 		numberOfChannels: number,
-		sampleRate: number,
-		bitDepth?: number
+		sampleRate: number
 	},
 	firstTimestampBehavior?: typeof FIRST_TIMESTAMP_BEHAVIORS[number]
 }
@@ -33,13 +35,14 @@ export interface Track {
 	id: number,
 	info: {
 		type: 'video',
+		codec: Mp4MuxerOptions['video']['codec'],
 		width: number,
 		height: number
 	} | {
 		type: 'audio',
+		codec: Mp4MuxerOptions['audio']['codec'],
 		numberOfChannels: number,
-		sampleRate: number,
-		bitDepth: number
+		sampleRate: number
 	},
 	timescale: number,
 	codecPrivate: Uint8Array,
@@ -96,13 +99,22 @@ class Mp4Muxer {
 	}
 
 	#validateOptions(options: Mp4MuxerOptions) {
+		if (options.video && !SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
+			throw new Error(`Unsupported video codec: ${options.video.codec}`);
+		}
+
+		if (options.audio && !SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
+			throw new Error(`Unsupported audio codec: ${options.audio.codec}`);
+		}
+
 		if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
 			throw new Error(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
 		}
 	}
 
 	#writeHeader() {
-		this.#target.writeBox(ftyp());
+		let holdsHevc = this.#options.video?.codec === 'hevc';
+		this.#target.writeBox(ftyp(holdsHevc));
 
 		this.#mdat = mdat();
 		this.#target.writeBox(this.#mdat);
@@ -114,6 +126,7 @@ class Mp4Muxer {
 				id: 1,
 				info: {
 					type: 'video',
+					codec: this.#options.video.codec,
 					width: this.#options.video.width,
 					height: this.#options.video.height
 				},
@@ -130,9 +143,9 @@ class Mp4Muxer {
 				id: this.#options.video ? 2 : 1,
 				info: {
 					type: 'audio',
+					codec: this.#options.audio.codec,
 					numberOfChannels: this.#options.audio.numberOfChannels,
-					sampleRate: this.#options.audio.sampleRate,
-					bitDepth: this.#options.audio.bitDepth ?? 16
+					sampleRate: this.#options.audio.sampleRate
 				},
 				timescale: this.#options.audio.sampleRate,
 				codecPrivate: null,
