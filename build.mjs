@@ -1,14 +1,14 @@
 import * as esbuild from 'esbuild';
 
 const config = {
-	entryPoints: ['src/main.ts'],
+	entryPoints: ['src/index.ts'],
 	bundle: true,
 	format: 'iife',
 	logLevel: 'info',
 	// The following are hacks to basically make this an UMD module. No native support for that in esbuild as of today
 	globalName: 'Mp4Muxer',
 	footer: {
-		js: 'Mp4Muxer = Mp4Muxer.default;\nif (typeof module === "object" && typeof module.exports === "object") module.exports = Mp4Muxer;'
+		js: 'if (typeof module === "object" && typeof module.exports === "object") module.exports = Mp4Muxer;'
 	}
 };
 

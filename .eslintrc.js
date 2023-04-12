@@ -20,9 +20,9 @@ module.exports = {
 	"rules": {
 		"prefer-const": ["off"],
 		"@typescript-eslint/no-explicit-any": ["off"],
-		"indent": ["error", "tab", { "SwitchCase": 1, "flatTernaryExpressions": true }],
+		"@typescript-eslint/indent": ["error", "tab", { "SwitchCase": 1, "flatTernaryExpressions": true }],
 		"no-useless-escape": ["off"],
-		"semi": ["error", "always"],
+		"@typescript-eslint/semi": ["error", "always"],
 		"@typescript-eslint/no-empty-function": ["off"],
 		"no-constant-condition": ["error", { "checkLoops": false }],
 		"no-cond-assign": ["off"],

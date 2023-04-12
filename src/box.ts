@@ -1,6 +1,6 @@
-import { GLOBAL_TIMESCALE, Sample, Track } from "./main";
+import { GLOBAL_TIMESCALE, Sample, Track } from "./muxer";
 import { ascii, i16, last, u16 } from "./misc";
-import { u32, fixed32, fixed16, u24, timestampToUnits } from "./misc";
+import { u32, fixed32, fixed16, u24 } from "./misc";
 
 const IDENTITY_MATRIX = [
 	0x00010000, 0, 0,
@@ -36,6 +36,10 @@ export const fullBox = (
 	[version, u24(flags), contents ?? []],
 	children
 );
+
+const timestampToUnits = (timestamp: number, timescale: number) => {
+	return Math.round(timestamp * timescale);
+};
 
 /**
  * File Type Compatibility Box: Allows the reader to determine whether this is a type of file that the
@@ -281,7 +285,7 @@ export const soundSampleDescription = (
 	compressionType: string,
 	track: Track & { info: { type: 'audio' } },
 	child: Box
-) => box('compressionType', [
+) => box(compressionType, [
 	Array(6).fill(0), // Reserved
 	u16(1), // Data reference index
 	u16(0), // Version

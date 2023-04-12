@@ -48,10 +48,6 @@ export const ascii = (text: string, nullTerminated = false) => {
 	return bytes;
 };
 
-export const timestampToUnits = (timestamp: number, timescale: number) => {
-	return Math.round(timestamp * timescale);
-};
-
 export const last = <T>(arr: T[]) => {
 	return arr && arr[arr.length - 1];
 };

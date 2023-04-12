@@ -1,23 +1,22 @@
-import { Box, ftyp, mdat, moov } from "./boxes";
+import { Box, ftyp, mdat, moov } from "./box";
+import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget, Target } from "./target";
 import {
-	WriteTarget,
-	ArrayBufferWriteTarget,
-	FileSystemWritableFileStreamWriteTarget,
-	StreamingWriteTarget
-} from "./write_target";
+	Writer,
+	ArrayBufferTargetWriter,
+	StreamTargetWriter,
+	ChunkedStreamTargetWriter,
+	FileSystemWritableFileStreamTargetWriter
+} from "./writer";
 
+export const GLOBAL_TIMESCALE = 1000;
 const TIMESTAMP_OFFSET = 2_082_848_400; // Seconds between Jan 1 1904 and Jan 1 1970
 const MAX_CHUNK_DURATION = 0.5; // In seconds
 const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc'] as const;
 const SUPPORTED_AUDIO_CODECS = ['aac'] as const;
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'permissive'] as const;
-export const GLOBAL_TIMESCALE = 1000;
 
-interface Mp4MuxerOptions {
-	target:
-		'buffer'
-		| ((data: Uint8Array, offset: number, done: boolean) => void)
-		| FileSystemWritableFileStream,
+interface Mp4MuxerOptions<T extends Target> {
+	target: T,
 	video?: {
 		codec: typeof SUPPORTED_VIDEO_CODECS[number],
 		width: number,
@@ -35,12 +34,12 @@ export interface Track {
 	id: number,
 	info: {
 		type: 'video',
-		codec: Mp4MuxerOptions['video']['codec'],
+		codec: Mp4MuxerOptions<any>['video']['codec'],
 		width: number,
 		height: number
 	} | {
 		type: 'audio',
-		codec: Mp4MuxerOptions['audio']['codec'],
+		codec: Mp4MuxerOptions<any>['audio']['codec'],
 		numberOfChannels: number,
 		sampleRate: number
 	},
@@ -65,9 +64,11 @@ interface Chunk {
 	offset?: number
 }
 
-class Mp4Muxer {
-	#options: Mp4MuxerOptions;
-	#target: WriteTarget;
+export class Muxer<T extends Target> {
+	target: T;
+
+	#options: Mp4MuxerOptions<T>;
+	#writer: Writer;
 	#mdat: Box;
 
 	#videoTrack: Track = null;
@@ -76,20 +77,23 @@ class Mp4Muxer {
 
 	#finalized = false;
 
-	constructor(options: Mp4MuxerOptions) {
+	constructor(options: Mp4MuxerOptions<T>) {
 		this.#validateOptions(options);
 
+		this.target = options.target;
 		this.#options = {
 			firstTimestampBehavior: 'strict',
 			...options
 		};
 
-		if (options.target === 'buffer') {
-			this.#target = new ArrayBufferWriteTarget();
-		} else if (options.target instanceof FileSystemWritableFileStream) {
-			this.#target = new FileSystemWritableFileStreamWriteTarget(options.target);
-		} else if (typeof options.target === 'function') {
-			this.#target = new StreamingWriteTarget(options.target);
+		if (options.target instanceof ArrayBufferTarget) {
+			this.#writer = new ArrayBufferTargetWriter(options.target);
+		} else if (options.target instanceof StreamTarget) {
+			this.#writer = options.target.options?.chunked
+				? new ChunkedStreamTargetWriter(options.target)
+				: new StreamTargetWriter(options.target);
+		} else if (options.target instanceof FileSystemWritableFileStreamTarget) {
+			this.#writer = new FileSystemWritableFileStreamTargetWriter(options.target);
 		} else {
 			throw new Error(`Invalid target: ${options.target}`);
 		}
@@ -98,7 +102,7 @@ class Mp4Muxer {
 		this.#prepareTracks();
 	}
 
-	#validateOptions(options: Mp4MuxerOptions) {
+	#validateOptions(options: Mp4MuxerOptions<T>) {
 		if (options.video && !SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
 			throw new Error(`Unsupported video codec: ${options.video.codec}`);
 		}
@@ -114,10 +118,12 @@ class Mp4Muxer {
 
 	#writeHeader() {
 		let holdsHevc = this.#options.video?.codec === 'hevc';
-		this.#target.writeBox(ftyp(holdsHevc));
+		this.#writer.writeBox(ftyp(holdsHevc));
 
 		this.#mdat = mdat();
-		this.#target.writeBox(this.#mdat);
+		this.#writer.writeBox(this.#mdat);
+
+		this.#maybeFlushStreamingTargetWriter();
 	}
 
 	#prepareTracks() {
@@ -235,11 +241,19 @@ class Mp4Muxer {
 	#writeCurrentChunk(track: Track) {
 		if (!track.currentChunk) return;
 
-		track.currentChunk.offset = this.#target.pos;
-		for (let bytes of track.currentChunk.sampleData) this.#target.write(bytes);
+		track.currentChunk.offset = this.#writer.pos;
+		for (let bytes of track.currentChunk.sampleData) this.#writer.write(bytes);
 		track.currentChunk.sampleData = null;
 
 		track.writtenChunks.push(track.currentChunk);
+
+		this.#maybeFlushStreamingTargetWriter();
+	}
+
+	#maybeFlushStreamingTargetWriter() {
+		if (this.#writer instanceof StreamTargetWriter) {
+			this.#writer.flush();
+		}
 	}
 
 	#ensureNotFinalized() {
@@ -252,17 +266,16 @@ class Mp4Muxer {
 		if (this.#videoTrack) this.#writeCurrentChunk(this.#videoTrack);
 		if (this.#audioTrack) this.#writeCurrentChunk(this.#audioTrack);
 
-		let mdatPos = this.#target.offsets.get(this.#mdat);
-		let mdatSize = this.#target.pos - mdatPos;
+		let mdatPos = this.#writer.offsets.get(this.#mdat);
+		let mdatSize = this.#writer.pos - mdatPos;
 		this.#mdat.size = mdatSize;
-		this.#target.patchBox(this.#mdat);
+		this.#writer.patchBox(this.#mdat);
 
 		let movieBox = moov([this.#videoTrack, this.#audioTrack].filter(Boolean), this.#creationTime);
-		this.#target.writeBox(movieBox);
+		this.#writer.writeBox(movieBox);
 
-		let buffer = (this.#target as ArrayBufferWriteTarget).finalize();
-		return buffer;
+		this.#maybeFlushStreamingTargetWriter();
+
+		this.#writer.finalize();
 	}
 }
-
-export default Mp4Muxer;

@@ -6,8 +6,26 @@
 	const sampleRate = 44100;
 	const numberOfChannels = 1;
 
-	let muxer = new Mp4Muxer({
-		target: 'buffer',
+	let fileHandle = await new Promise(resolve => {
+		window.addEventListener('click', async () => {
+			let fileHandle = await window.showSaveFilePicker({
+				startIn: 'videos',
+				suggestedName: `video.mp4`,
+				types: [{
+					description: 'Video File',
+					accept: {'video/mp4' :['.mp4']}
+				}],
+			});
+			resolve(fileHandle);
+		}, { once: true });
+	});
+	let fileWritableStream = await fileHandle.createWritable();
+
+	let buf = new Uint8Array(2**24);
+	let maxPos = 0;
+
+	let muxer = new Mp4Muxer.Muxer({
+		target: new Mp4Muxer.FileSystemWritableFileStreamTarget(fileWritableStream),
 		
 		video: {
 			codec: 'avc',
@@ -28,7 +46,7 @@
 
 	let videoEncoder = new VideoEncoder({
 		output: (chunk, meta) => {
-			console.log(chunk, meta);
+			//console.log(chunk, meta);
 			muxer.addVideoChunk(chunk, meta);
 		},
 		error: (e) => console.error(e)
@@ -43,7 +61,7 @@
 
 	let audioEncoder = new AudioEncoder({
 		output: (chunk, meta) => {
-			console.log(chunk, meta);
+			//console.log(chunk, meta);
 			muxer.addAudioChunk(chunk, meta);
 		},
 		error: (e) => console.error(e)
@@ -84,8 +102,11 @@
 	await videoEncoder.flush();
 	await audioEncoder.flush();
 
-	let buffer = muxer.finalize();
+	muxer.finalize();
+	let buffer = muxer.target.buffer;
 	console.log(buffer);
+
+	await fileWritableStream.close();
 
 	function download(blob, filename) {
 		const a = document.createElement('a');
@@ -93,5 +114,5 @@
 		a.download = filename;
 		a.click();
 	}
-	download(new Blob([buffer]), 't.mp4');
+	//download(new Blob([buffer]), 't.mp4');
 </script>
