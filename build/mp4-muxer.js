@@ -807,16 +807,26 @@ var Mp4Muxer = (() => {
       __privateMethod(this, _prepareTracks, prepareTracks_fn).call(this);
     }
     addVideoChunk(sample, meta) {
+      let data = new Uint8Array(sample.byteLength);
+      sample.copyTo(data);
+      this.addVideoChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+    }
+    addVideoChunkRaw(data, type, timestamp, duration, meta) {
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
       if (!__privateGet(this, _options).video)
         throw new Error("No video track declared.");
-      __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _videoTrack), sample, meta);
+      __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _videoTrack), data, type, timestamp, duration, meta);
     }
     addAudioChunk(sample, meta) {
+      let data = new Uint8Array(sample.byteLength);
+      sample.copyTo(data);
+      this.addAudioChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+    }
+    addAudioChunkRaw(data, type, timestamp, duration, meta) {
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
       if (!__privateGet(this, _options).audio)
         throw new Error("No audio track declared.");
-      __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _audioTrack), sample, meta);
+      __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _audioTrack), data, type, timestamp, duration, meta);
     }
     finalize() {
       if (__privateGet(this, _videoTrack))
@@ -897,10 +907,10 @@ var Mp4Muxer = (() => {
     }
   };
   _addSampleToTrack = new WeakSet();
-  addSampleToTrack_fn = function(track, sample, meta) {
+  addSampleToTrack_fn = function(track, data, type, timestamp, duration, meta) {
     var _a;
-    let timestampInSeconds = sample.timestamp / 1e6;
-    let durationInSeconds = sample.duration / 1e6;
+    let timestampInSeconds = timestamp / 1e6;
+    let durationInSeconds = duration / 1e6;
     if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
       if (track.currentChunk)
         __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, track);
@@ -910,18 +920,16 @@ var Mp4Muxer = (() => {
         sampleCount: 0
       };
     }
-    let data = new Uint8Array(sample.byteLength);
-    sample.copyTo(data);
     track.currentChunk.sampleData.push(data);
     track.currentChunk.sampleCount++;
-    if ((_a = meta.decoderConfig) == null ? void 0 : _a.description) {
+    if ((_a = meta == null ? void 0 : meta.decoderConfig) == null ? void 0 : _a.description) {
       track.codecPrivate = new Uint8Array(meta.decoderConfig.description);
     }
     track.samples.push({
       timestamp: timestampInSeconds,
       duration: durationInSeconds,
       size: data.byteLength,
-      type: sample.type
+      type
     });
   };
   _writeCurrentChunk = new WeakSet();

@@ -157,26 +157,55 @@ class Mp4Muxer {
 	}
 
 	addVideoChunk(sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata) {
+		let data = new Uint8Array(sample.byteLength);
+		sample.copyTo(data);
+
+		this.addVideoChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+	}
+
+	addVideoChunkRaw(
+		data: Uint8Array,
+		type: 'key' | 'delta',
+		timestamp: number,
+		duration: number,
+		meta?: EncodedVideoChunkMetadata
+	) {
 		this.#ensureNotFinalized();
 		if (!this.#options.video) throw new Error("No video track declared.");
 
-		this.#addSampleToTrack(this.#videoTrack, sample, meta);
+		this.#addSampleToTrack(this.#videoTrack, data, type, timestamp, duration, meta);
 	}
 
 	addAudioChunk(sample: EncodedAudioChunk, meta: EncodedAudioChunkMetadata) {
+		let data = new Uint8Array(sample.byteLength);
+		sample.copyTo(data);
+
+		this.addAudioChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+	}
+
+	addAudioChunkRaw(
+		data: Uint8Array,
+		type: 'key' | 'delta',
+		timestamp: number,
+		duration: number,
+		meta?: EncodedAudioChunkMetadata
+	) {
 		this.#ensureNotFinalized();
 		if (!this.#options.audio) throw new Error("No audio track declared.");
 
-		this.#addSampleToTrack(this.#audioTrack, sample, meta);
+		this.#addSampleToTrack(this.#audioTrack, data, type, timestamp, duration, meta);
 	}
 
 	#addSampleToTrack(
 		track: Track,
-		sample: EncodedVideoChunk | EncodedAudioChunk,
+		data: Uint8Array,
+		type: 'key' | 'delta',
+		timestamp: number,
+		duration: number,
 		meta: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata
 	) {
-		let timestampInSeconds = sample.timestamp / 1e6;
-		let durationInSeconds = sample.duration / 1e6;
+		let timestampInSeconds = timestamp / 1e6;
+		let durationInSeconds = duration / 1e6;
 
 		if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
 			if (track.currentChunk) this.#writeCurrentChunk(track);
@@ -188,13 +217,10 @@ class Mp4Muxer {
 			};
 		}
 
-		let data = new Uint8Array(sample.byteLength);
-		sample.copyTo(data);
-
 		track.currentChunk.sampleData.push(data);
 		track.currentChunk.sampleCount++;
 
-		if (meta.decoderConfig?.description) {
+		if (meta?.decoderConfig?.description) {
 			track.codecPrivate = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
 		}
 
@@ -202,7 +228,7 @@ class Mp4Muxer {
 			timestamp: timestampInSeconds,
 			duration: durationInSeconds,
 			size: data.byteLength,
-			type: sample.type
+			type: type
 		});
 	}
 
