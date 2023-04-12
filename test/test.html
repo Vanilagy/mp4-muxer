@@ -25,7 +25,8 @@
 	let maxPos = 0;
 
 	let muxer = new Mp4Muxer.Muxer({
-		target: new Mp4Muxer.FileSystemWritableFileStreamTarget(fileWritableStream),
+		//target: new Mp4Muxer.FileSystemWritableFileStreamTarget(fileWritableStream),
+		target: new Mp4Muxer.ArrayBufferTarget(),
 		
 		video: {
 			codec: 'avc',
@@ -114,5 +115,5 @@
 		a.download = filename;
 		a.click();
 	}
-	//download(new Blob([buffer]), 't.mp4');
+	download(new Blob([buffer]), 't.mp4');
 </script>

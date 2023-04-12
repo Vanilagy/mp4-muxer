@@ -65,49 +65,47 @@ var Mp4Muxer = (() => {
   });
 
   // src/misc.ts
+  var bytes = new Uint8Array(8);
+  var view = new DataView(bytes.buffer);
+  var u8 = (value) => {
+    return [(value % 256 + 256) % 256];
+  };
   var u16 = (value) => {
-    let bytes = new Uint8Array(2);
-    let view = new DataView(bytes.buffer);
     view.setUint16(0, value, false);
-    return [...bytes];
+    return [bytes[0], bytes[1]];
   };
   var i16 = (value) => {
-    let bytes = new Uint8Array(2);
-    let view = new DataView(bytes.buffer);
     view.setInt16(0, value, false);
-    return [...bytes];
+    return [bytes[0], bytes[1]];
   };
   var u24 = (value) => {
-    let bytes = new Uint8Array(4);
-    let view = new DataView(bytes.buffer);
     view.setUint32(0, value, false);
-    return [...bytes].slice(1);
+    return [bytes[1], bytes[2], bytes[3]];
   };
   var u32 = (value) => {
-    let bytes = new Uint8Array(4);
-    let view = new DataView(bytes.buffer);
     view.setUint32(0, value, false);
-    return [...bytes];
+    return [bytes[0], bytes[1], bytes[2], bytes[3]];
+  };
+  var u64 = (value) => {
+    view.setUint32(0, value / __pow(2, 32), false);
+    view.setUint32(4, value, false);
+    return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
   };
   var fixed16 = (value) => {
-    let bytes = new Uint8Array(2);
-    let view = new DataView(bytes.buffer);
     view.setUint8(0, value);
     view.setUint8(1, value << 8);
-    return [...bytes];
+    return [bytes[0], bytes[1]];
   };
   var fixed32 = (value) => {
-    let bytes = new Uint8Array(4);
-    let view = new DataView(bytes.buffer);
     view.setUint16(0, value, false);
     view.setUint16(2, value << 16, false);
-    return [...bytes];
+    return [bytes[0], bytes[1], bytes[2], bytes[3]];
   };
   var ascii = (text, nullTerminated = false) => {
-    let bytes = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
+    let bytes2 = Array(text.length).fill(null).map((_, i) => text.charCodeAt(i));
     if (nullTerminated)
-      bytes.push(0);
-    return bytes;
+      bytes2.push(0);
+    return bytes2;
   };
   var last = (arr) => {
     return arr && arr[arr.length - 1];
@@ -132,7 +130,7 @@ var Mp4Muxer = (() => {
   });
   var fullBox = (type, version, flags, contents, children) => box(
     type,
-    [version, u24(flags), contents != null ? contents : []],
+    [u8(version), u24(flags), contents != null ? contents : []],
     children
   );
   var timestampToUnits = (timestamp, timescale) => {
@@ -219,16 +217,13 @@ var Mp4Muxer = (() => {
       // Duration
       Array(8).fill(0),
       // Reserved
-      0,
-      0,
+      u16(0),
       // Layer
-      0,
-      0,
+      u16(0),
       // Alternate group
       fixed16(track.info.type === "audio" ? 1 : 0),
       // Volume
-      0,
-      0,
+      u16(0),
       // Reserved
       IDENTITY_MATRIX,
       // Matrix
@@ -258,8 +253,7 @@ var Mp4Muxer = (() => {
       // Timescale
       u32(localDuration),
       // Duration
-      85,
-      196,
+      u16(21956),
       // Language ("und", undetermined)
       u16(0)
       // Quality
@@ -295,11 +289,9 @@ var Mp4Muxer = (() => {
     // Opcolor B
   ]);
   var smhd = () => fullBox("smhd", 0, 0, [
-    0,
-    0,
+    u16(0),
     // Balance
-    0,
-    0
+    u16(0)
     // Reserved
   ]);
   var dinf = () => box("dinf", null, [
@@ -337,14 +329,11 @@ var Mp4Muxer = (() => {
   var videoSampleDescription = (compressionType, track, child) => box(compressionType, [
     Array(6).fill(0),
     // Reserved
-    0,
-    1,
+    u16(1),
     // Data reference index
-    0,
-    0,
+    u16(0),
     // Pre-defined
-    0,
-    0,
+    u16(0),
     // Reserved
     Array(12).fill(0),
     // Pre-defined
@@ -399,23 +388,21 @@ var Mp4Muxer = (() => {
     // https://stackoverflow.com/a/54803118
     u32(58753152),
     // TAG(3) = Object Descriptor ([2])
-    34,
+    u8(34),
     // length of this OD (which includes the next 2 tags)
     u16(1),
     // ES_ID = 1
-    0,
+    u8(0),
     // flags etc = 0
     u32(75530368),
     // TAG(4) = ES Descriptor ([2]) embedded in above OD
-    20,
+    u8(20),
     // length of this ESD
-    64,
+    u8(64),
     // MPEG-4 Audio
-    21,
+    u8(21),
     // stream type(6bits)=5 audio, flags(2bits)=1
-    0,
-    0,
-    0,
+    u24(0),
     // 24bit buffer size
     u32(130071),
     // max bitrate
@@ -423,15 +410,15 @@ var Mp4Muxer = (() => {
     // avg bitrate
     u32(92307584),
     // TAG(5) = ASC ([2],[3]) embedded in above OD
-    2,
+    u8(2),
     // length
     track.codecPrivate[0],
     track.codecPrivate[1],
     u32(109084800),
     // TAG(6)
-    1,
+    u8(1),
     // length
-    2
+    u8(2)
     // data
   ]);
   var stts = (track) => {
@@ -501,12 +488,21 @@ var Mp4Muxer = (() => {
     track.samples.map((x) => u32(x.size))
     // Sample size table
   ]);
-  var stco = (track) => fullBox("stco", 0, 0, [
-    u32(track.writtenChunks.length),
-    // Number of entries
-    track.writtenChunks.map((x) => u32(x.offset))
-    // Chunk offset table
-  ]);
+  var stco = (track) => {
+    if (last(track.writtenChunks).offset >= __pow(2, 32))
+      return fullBox("co64", 0, 0, [
+        u32(track.writtenChunks.length),
+        // Number of entries
+        track.writtenChunks.map((x) => u64(x.offset))
+        // Chunk offset table
+      ]);
+    return fullBox("stco", 0, 0, [
+      u32(track.writtenChunks.length),
+      // Number of entries
+      track.writtenChunks.map((x) => u32(x.offset))
+      // Chunk offset table
+    ]);
+  };
 
   // src/target.ts
   var ArrayBufferTarget = class {
@@ -975,8 +971,8 @@ var Mp4Muxer = (() => {
     if (!track.currentChunk)
       return;
     track.currentChunk.offset = __privateGet(this, _writer).pos;
-    for (let bytes of track.currentChunk.sampleData)
-      __privateGet(this, _writer).write(bytes);
+    for (let bytes2 of track.currentChunk.sampleData)
+      __privateGet(this, _writer).write(bytes2);
     track.currentChunk.sampleData = null;
     track.writtenChunks.push(track.currentChunk);
     __privateMethod(this, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn).call(this);

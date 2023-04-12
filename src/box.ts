@@ -1,5 +1,5 @@
 import { GLOBAL_TIMESCALE, Sample, Track } from "./muxer";
-import { ascii, i16, last, u16 } from "./misc";
+import { ascii, i16, last, u16, u64, u8 } from "./misc";
 import { u32, fixed32, fixed16, u24 } from "./misc";
 
 const IDENTITY_MATRIX = [
@@ -33,7 +33,7 @@ export const fullBox = (
 	children?: Box[]
 ) => box(
 	type,
-	[version, u24(flags), contents ?? []],
+	[u8(version), u24(flags), contents ?? []],
 	children
 );
 
@@ -126,10 +126,10 @@ export const tkhd = (
 		u32(0), // Reserved
 		u32(durationInGlobalTimescale), // Duration
 		Array(8).fill(0), // Reserved
-		0x00, 0x00, // Layer
-		0x00, 0x00, // Alternate group
+		u16(0), // Layer
+		u16(0), // Alternate group
 		fixed16(track.info.type === 'audio' ? 1 : 0), // Volume
-		0x00, 0x00, // Reserved
+		u16(0), // Reserved
 		IDENTITY_MATRIX, // Matrix
 		fixed32(track.info.type === 'video' ? track.info.width : 0), // Track width
 		fixed32(track.info.type === 'video' ? track.info.height : 0) // Track height
@@ -159,7 +159,7 @@ export const mdhd = (
 		u32(creationTime), // Modification time
 		u32(track.timescale), // Timescale
 		u32(localDuration), // Duration
-		0b01010101, 0b11000100, // Language ("und", undetermined)
+		u16(0b01010101_11000100), // Language ("und", undetermined)
 		u16(0) // Quality
 	]);
 };
@@ -194,8 +194,8 @@ export const vmhd = () => fullBox('vmhd', 0, 1, [
 
 /** Sound Media Information Header Box: Stores the sound media's control information, such as balance. */
 export const smhd = () => fullBox('smhd', 0, 0, [
-	0x00, 0x00, // Balance
-	0x00, 0x00 // Reserved
+	u16(0), // Balance
+	u16(0) // Reserved
 ]);
 
 /**
@@ -257,9 +257,9 @@ export const videoSampleDescription = (
 	child: Box
 ) => box(compressionType, [
 	Array(6).fill(0), // Reserved
-	0x00, 0x01, // Data reference index
-	0x00, 0x00, // Pre-defined
-	0x00, 0x00, // Reserved
+	u16(1), // Data reference index
+	u16(0), // Pre-defined
+	u16(0), // Reserved
 	Array(12).fill(0), // Pre-defined
 	u16(track.info.width), // Width
 	u16(track.info.height), // Height
@@ -304,22 +304,22 @@ export const soundSampleDescription = (
 export const esds = (track: Track) => fullBox('esds', 0, 0, [
 	// https://stackoverflow.com/a/54803118
 	u32(0x03808080), // TAG(3) = Object Descriptor ([2])
-	0x22, // length of this OD (which includes the next 2 tags)
+	u8(0x22), // length of this OD (which includes the next 2 tags)
 	u16(1), // ES_ID = 1
-	0x00, // flags etc = 0
+	u8(0x00), // flags etc = 0
 	u32(0x04808080), // TAG(4) = ES Descriptor ([2]) embedded in above OD
-	0x14, // length of this ESD
-	0x40, // MPEG-4 Audio
-	0x15, // stream type(6bits)=5 audio, flags(2bits)=1
-	0x00, 0x00, 0x00, // 24bit buffer size
+	u8(0x14), // length of this ESD
+	u8(0x40), // MPEG-4 Audio
+	u8(0x15), // stream type(6bits)=5 audio, flags(2bits)=1
+	u24(0), // 24bit buffer size
 	u32(0x0001FC17), // max bitrate
 	u32(0x0001FC17), // avg bitrate
 	u32(0x05808080), // TAG(5) = ASC ([2],[3]) embedded in above OD
-	0x02, // length
+	u8(0x02), // length
 	track.codecPrivate[0], track.codecPrivate[1],
 	u32(0x06808080), // TAG(6)
-	0x01, // length
-	0x02 // data
+	u8(0x01), // length
+	u8(0x02) // data
 ]);
 
 /**
@@ -402,7 +402,15 @@ export const stsz = (track: Track) => fullBox('stsz', 0, 0, [
 ]);
 
 /** Chunk Offset Box: Identifies the location of each chunk of data in the media's data stream, relative to the file. */
-export const stco = (track: Track) => fullBox('stco', 0, 0, [
-	u32(track.writtenChunks.length), // Number of entries
-	track.writtenChunks.map(x => u32(x.offset)) // Chunk offset table
-]);
+export const stco = (track: Track) => {
+	// If the file is large, use the co64 box
+	if (last(track.writtenChunks).offset >= 2**32) return fullBox('co64', 0, 0, [
+		u32(track.writtenChunks.length), // Number of entries
+		track.writtenChunks.map(x => u64(x.offset)) // Chunk offset table
+	]);
+
+	return fullBox('stco', 0, 0, [
+		u32(track.writtenChunks.length), // Number of entries
+		track.writtenChunks.map(x => u32(x.offset)) // Chunk offset table
+	]);
+};

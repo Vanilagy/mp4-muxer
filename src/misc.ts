@@ -1,45 +1,46 @@
+let bytes = new Uint8Array(8);
+let view = new DataView(bytes.buffer);
+
+export const u8 = (value: number) => {
+	return [(value % 0x100 + 0x100) % 0x100];
+};
+
 export const u16 = (value: number) => {
-	let bytes = new Uint8Array(2);
-	let view = new DataView(bytes.buffer);
 	view.setUint16(0, value, false);
-	return [...bytes];
+	return [bytes[0], bytes[1]];
 };
 
 export const i16 = (value: number) => {
-	let bytes = new Uint8Array(2);
-	let view = new DataView(bytes.buffer);
 	view.setInt16(0, value, false);
-	return [...bytes];
+	return [bytes[0], bytes[1]];
 };
 
 export const u24 = (value: number) => {
-	let bytes = new Uint8Array(4);
-	let view = new DataView(bytes.buffer);
 	view.setUint32(0, value, false);
-	return [...bytes].slice(1);
+	return [bytes[1], bytes[2], bytes[3]];
 };
 
 export const u32 = (value: number) => {
-	let bytes = new Uint8Array(4);
-	let view = new DataView(bytes.buffer);
 	view.setUint32(0, value, false);
-	return [...bytes];
+	return [bytes[0], bytes[1], bytes[2], bytes[3]];
+};
+
+export const u64 = (value: number) => {
+	view.setUint32(0, value / 2**32, false);
+	view.setUint32(4, value, false);
+	return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
 };
 
 export const fixed16 = (value: number) => {
-	let bytes = new Uint8Array(2);
-	let view = new DataView(bytes.buffer);
 	view.setUint8(0, value);
 	view.setUint8(1, value << 8);
-	return [...bytes];
+	return [bytes[0], bytes[1]];
 };
 
 export const fixed32 = (value: number) => {
-	let bytes = new Uint8Array(4);
-	let view = new DataView(bytes.buffer);
 	view.setUint16(0, value, false);
 	view.setUint16(2, value << 16, false);
-	return [...bytes];
+	return [bytes[0], bytes[1], bytes[2], bytes[3]];
 };
 
 export const ascii = (text: string, nullTerminated = false) => {
