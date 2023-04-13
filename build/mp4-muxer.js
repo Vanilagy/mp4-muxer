@@ -856,10 +856,10 @@ var Mp4Muxer = (() => {
       __privateMethod(this, _writeHeader, writeHeader_fn).call(this);
       __privateMethod(this, _prepareTracks, prepareTracks_fn).call(this);
     }
-    addVideoChunk(sample, meta) {
+    addVideoChunk(sample, meta, timestamp) {
       let data = new Uint8Array(sample.byteLength);
       sample.copyTo(data);
-      this.addVideoChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+      this.addVideoChunkRaw(data, sample.type, timestamp != null ? timestamp : sample.timestamp, sample.duration, meta);
     }
     addVideoChunkRaw(data, type, timestamp, duration, meta) {
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
@@ -867,10 +867,10 @@ var Mp4Muxer = (() => {
         throw new Error("No video track declared.");
       __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _videoTrack), data, type, timestamp, duration, meta);
     }
-    addAudioChunk(sample, meta) {
+    addAudioChunk(sample, meta, timestamp) {
       let data = new Uint8Array(sample.byteLength);
       sample.copyTo(data);
-      this.addAudioChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+      this.addAudioChunkRaw(data, sample.type, timestamp != null ? timestamp : sample.timestamp, sample.duration, meta);
     }
     addAudioChunkRaw(data, type, timestamp, duration, meta) {
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
@@ -1035,4 +1035,9 @@ If you want to allow non-zero first timestamps, set firstTimestampBehavior: 'per
   };
   return __toCommonJS(src_exports);
 })();
-if (typeof module === "object" && typeof module.exports === "object") module.exports = Mp4Muxer;
+if (typeof module === "object" && typeof module.exports === "object") {
+	module.exports.Muxer = Mp4Muxer.Muxer;
+	module.exports.ArrayBufferTarget = Mp4Muxer.ArrayBufferTarget;
+	module.exports.StreamTarget = Mp4Muxer.StreamTarget;
+	module.exports.FileSystemWritableFileStreamTarget = Mp4Muxer.FileSystemWritableFileStreamTarget;
+}

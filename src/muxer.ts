@@ -168,11 +168,11 @@ export class Muxer<T extends Target> {
 		}
 	}
 
-	addVideoChunk(sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata) {
+	addVideoChunk(sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata, timestamp?: number) {
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
-		this.addVideoChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+		this.addVideoChunkRaw(data, sample.type, timestamp ?? sample.timestamp, sample.duration, meta);
 	}
 
 	addVideoChunkRaw(
@@ -188,11 +188,11 @@ export class Muxer<T extends Target> {
 		this.#addSampleToTrack(this.#videoTrack, data, type, timestamp, duration, meta);
 	}
 
-	addAudioChunk(sample: EncodedAudioChunk, meta: EncodedAudioChunkMetadata) {
+	addAudioChunk(sample: EncodedAudioChunk, meta: EncodedAudioChunkMetadata, timestamp?: number) {
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
-		this.addAudioChunkRaw(data, sample.type, sample.timestamp, sample.duration, meta);
+		this.addAudioChunkRaw(data, sample.type, timestamp ?? sample.timestamp, sample.duration, meta);
 	}
 
 	addAudioChunkRaw(
