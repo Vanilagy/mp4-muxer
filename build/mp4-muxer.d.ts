@@ -45,7 +45,7 @@ declare interface MuxerOptions<T extends Target> {
 
 	/**
 	 * Specifies how to deal with the first chunk in each track having a non-zero timestamp. In the default strict mode,
-	 * timestamps must start with 0 to ensure proper playback. However, when directly pumping video frames or audio data
+	 * timestamps must start with 0 to ensure proper playback. However, when directly piping video frames or audio data
 	 * from a MediaTrackStream into the encoder and then the muxer, the timestamps are usually relative to the age of
 	 * the document or the computer's clock, which is typically not what we want. Handling of these timestamps must be
 	 * set explicitly:

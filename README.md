@@ -120,9 +120,9 @@ This option specifies where the data created by the muxer will be written. The o
 
     ```ts
     constructor(
-        public onData: (data: Uint8Array, position: number) => void,
-        public onDone?: () => void,
-        public options?: { chunked: true }
+        onData: (data: Uint8Array, position: number) => void,
+        onDone?: () => void,
+        options?: { chunked: true }
     );
     ```
 
@@ -170,7 +170,7 @@ This option specifies where the data created by the muxer will be written. The o
     ```
 #### `firstTimestampBehavior` (optional)
 Specifies how to deal with the first chunk in each track having a non-zero timestamp. In the default strict mode,
-timestamps must start with 0 to ensure proper playback. However, when directly pumping video frames or audio data
+timestamps must start with 0 to ensure proper playback. However, when directly piping video frames or audio data
 from a MediaTrackStream into the encoder and then the muxer, the timestamps are usually relative to the age of
 the document or the computer's clock, which is typically not what we want. Handling of these timestamps must be
 set explicitly:
