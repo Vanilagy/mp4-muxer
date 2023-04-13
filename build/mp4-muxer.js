@@ -820,13 +820,14 @@ var Mp4Muxer = (() => {
   var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
   var SUPPORTED_AUDIO_CODECS = ["aac"];
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
-  var _options, _writer, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _writeCurrentChunk, writeCurrentChunk_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
+  var _options, _writer, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _writeCurrentChunk, writeCurrentChunk_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
   var Muxer = class {
     constructor(options) {
       __privateAdd(this, _validateOptions);
       __privateAdd(this, _writeHeader);
       __privateAdd(this, _prepareTracks);
       __privateAdd(this, _addSampleToTrack);
+      __privateAdd(this, _validateTimestamp);
       __privateAdd(this, _writeCurrentChunk);
       __privateAdd(this, _maybeFlushStreamingTargetWriter);
       __privateAdd(this, _ensureNotFinalized);
@@ -936,7 +937,9 @@ var Mp4Muxer = (() => {
         codecPrivate: new Uint8Array(0),
         samples: [],
         writtenChunks: [],
-        currentChunk: null
+        currentChunk: null,
+        firstTimestamp: void 0,
+        lastTimestamp: -1
       });
     }
     if (__privateGet(this, _options).audio) {
@@ -952,7 +955,9 @@ var Mp4Muxer = (() => {
         codecPrivate: new Uint8Array(0),
         samples: [],
         writtenChunks: [],
-        currentChunk: null
+        currentChunk: null,
+        firstTimestamp: void 0,
+        lastTimestamp: -1
       });
     }
   };
@@ -961,6 +966,9 @@ var Mp4Muxer = (() => {
     var _a;
     let timestampInSeconds = timestamp / 1e6;
     let durationInSeconds = duration / 1e6;
+    if (track.firstTimestamp === void 0)
+      track.firstTimestamp = timestampInSeconds;
+    timestampInSeconds = __privateMethod(this, _validateTimestamp, validateTimestamp_fn).call(this, timestampInSeconds, track);
     if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
       if (track.currentChunk)
         __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, track);
@@ -981,6 +989,26 @@ var Mp4Muxer = (() => {
       size: data.byteLength,
       type
     });
+  };
+  _validateTimestamp = new WeakSet();
+  validateTimestamp_fn = function(timestamp, track) {
+    if (__privateGet(this, _options).firstTimestampBehavior === "strict" && track.lastTimestamp === -1 && timestamp !== 0) {
+      throw new Error(
+        `The first chunk for your media track must have a timestamp of 0 (received ${timestamp}). Non-zero first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of the document, which is probably what you want.
+
+If you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.
+If you want to allow non-zero first timestamps, set firstTimestampBehavior: 'permissive'.
+`
+      );
+    } else if (__privateGet(this, _options).firstTimestampBehavior === "offset") {
+      timestamp -= track.firstTimestamp;
+    }
+    if (timestamp < track.lastTimestamp) {
+      throw new Error(
+        `Timestamps must be monotonically increasing (went from ${track.lastTimestamp * 1e6} to ${timestamp * 1e6}).`
+      );
+    }
+    return timestamp;
   };
   _writeCurrentChunk = new WeakSet();
   writeCurrentChunk_fn = function(track) {

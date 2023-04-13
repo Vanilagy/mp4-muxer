@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+	<head>
+		<meta charset="UTF-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>MP4 muxer demo</title>
+		<link rel="stylesheet" href="./style.css">
+		<script src="../build/mp4-muxer.js" defer></script>
+		<script src="./script.js" defer></script>
+	</head>
+	<body>
+		<main>
+			<h1>MP4 muxer demo - draw something!</h1>
+			<h2>The live canvas state and your microphone input will be recorded<br>and muxed into an MP4 file.</h2>
+			<div id="controls">
+				<button id="start-recording">Start recording</button>
+				<button id="end-recording" style="display: none;">End recording</button>
+			</div>
+			<canvas width="640" height="480"></canvas>
+			<p id="recording-status"></p>
+		</main>
+	</body>
+</html>

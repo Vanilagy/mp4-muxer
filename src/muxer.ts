@@ -47,7 +47,9 @@ export interface Track {
 	codecPrivate: Uint8Array,
 	samples: Sample[],
 	writtenChunks: Chunk[],
-	currentChunk: Chunk
+	currentChunk: Chunk,
+	firstTimestamp: number,
+	lastTimestamp: number
 }
 
 export interface Sample {
@@ -140,7 +142,9 @@ export class Muxer<T extends Target> {
 				codecPrivate: new Uint8Array(0),
 				samples: [],
 				writtenChunks: [],
-				currentChunk: null
+				currentChunk: null,
+				firstTimestamp: undefined,
+				lastTimestamp: -1
 			};
 		}
 
@@ -157,7 +161,9 @@ export class Muxer<T extends Target> {
 				codecPrivate: new Uint8Array(0),
 				samples: [],
 				writtenChunks: [],
-				currentChunk: null
+				currentChunk: null,
+				firstTimestamp: undefined,
+				lastTimestamp: -1
 			};
 		}
 	}
@@ -213,6 +219,9 @@ export class Muxer<T extends Target> {
 		let timestampInSeconds = timestamp / 1e6;
 		let durationInSeconds = duration / 1e6;
 
+		if (track.firstTimestamp === undefined) track.firstTimestamp = timestampInSeconds;
+		timestampInSeconds = this.#validateTimestamp(timestampInSeconds, track);
+
 		if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
 			if (track.currentChunk) this.#writeCurrentChunk(track);
 
@@ -236,6 +245,31 @@ export class Muxer<T extends Target> {
 			size: data.byteLength,
 			type: type
 		});
+	}
+
+	#validateTimestamp(timestamp: number, track: Track) {
+		// Check first timestamp behavior
+		if (this.#options.firstTimestampBehavior === 'strict' && track.lastTimestamp === -1 && timestamp !== 0) {
+			throw new Error(
+				`The first chunk for your media track must have a timestamp of 0 (received ${timestamp}). Non-zero ` +
+				`first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack ` +
+				`into the encoder. Their timestamps are typically relative to the age of the document, which is ` +
+				`probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one ` +
+				`is zero, set firstTimestampBehavior: 'offset' in the options.\nIf you want to allow non-zero first ` +
+				`timestamps, set firstTimestampBehavior: 'permissive'.\n`
+			);
+		} else if (this.#options.firstTimestampBehavior === 'offset') {
+			timestamp -= track.firstTimestamp;
+		}
+
+		if (timestamp < track.lastTimestamp) {
+			throw new Error(
+				`Timestamps must be monotonically increasing ` +
+				`(went from ${track.lastTimestamp * 1e6} to ${timestamp * 1e6}).`
+			);
+		}
+
+		return timestamp;
 	}
 
 	#writeCurrentChunk(track: Track) {
