@@ -26,7 +26,7 @@ export const u32 = (value: number) => {
 };
 
 export const u64 = (value: number) => {
-	view.setUint32(0, value / 2**32, false);
+	view.setUint32(0, Math.floor(value / 2**32), false);
 	view.setUint32(4, value, false);
 	return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
 };

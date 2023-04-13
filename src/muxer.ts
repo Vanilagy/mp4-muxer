@@ -9,7 +9,7 @@ import {
 } from "./writer";
 
 export const GLOBAL_TIMESCALE = 1000;
-const TIMESTAMP_OFFSET = 2_082_848_400; // Seconds between Jan 1 1904 and Jan 1 1970
+const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
 const MAX_CHUNK_DURATION = 0.5; // In seconds
 const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc'] as const;
 const SUPPORTED_AUDIO_CODECS = ['aac'] as const;
@@ -137,7 +137,7 @@ export class Muxer<T extends Target> {
 					height: this.#options.video.height
 				},
 				timescale: 720, // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates
-				codecPrivate: null,
+				codecPrivate: new Uint8Array(0),
 				samples: [],
 				writtenChunks: [],
 				currentChunk: null
@@ -154,7 +154,7 @@ export class Muxer<T extends Target> {
 					sampleRate: this.#options.audio.sampleRate
 				},
 				timescale: this.#options.audio.sampleRate,
-				codecPrivate: null,
+				codecPrivate: new Uint8Array(0),
 				samples: [],
 				writtenChunks: [],
 				currentChunk: null

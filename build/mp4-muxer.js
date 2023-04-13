@@ -87,7 +87,7 @@ var Mp4Muxer = (() => {
     return [bytes[0], bytes[1], bytes[2], bytes[3]];
   };
   var u64 = (value) => {
-    view.setUint32(0, value / __pow(2, 32), false);
+    view.setUint32(0, Math.floor(value / __pow(2, 32)), false);
     view.setUint32(4, value, false);
     return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
   };
@@ -133,8 +133,8 @@ var Mp4Muxer = (() => {
     [u8(version), u24(flags), contents != null ? contents : []],
     children
   );
-  var timestampToUnits = (timestamp, timescale) => {
-    return Math.round(timestamp * timescale);
+  var intoTimescale = (timeInSeconds, timescale) => {
+    return Math.round(timeInSeconds * timescale);
   };
   var ftyp = (holdsHevc) => {
     if (holdsHevc)
@@ -167,8 +167,9 @@ var Mp4Muxer = (() => {
     ...tracks.map((x) => trak(x, creationTime))
   ]);
   var mvhd = (creationTime, tracks) => {
-    let duration = timestampToUnits(Math.max(
-      ...tracks.map((x) => last(x.samples).timestamp + last(x.samples).duration)
+    let duration = intoTimescale(Math.max(
+      0,
+      ...tracks.filter((x) => x.samples.length > 0).map((x) => last(x.samples).timestamp + last(x.samples).duration)
     ), GLOBAL_TIMESCALE);
     let nextTrackId = Math.max(...tracks.map((x) => x.id)) + 1;
     return fullBox("mvhd", 0, 0, [
@@ -200,8 +201,8 @@ var Mp4Muxer = (() => {
   ]);
   var tkhd = (track, creationTime) => {
     let lastSample = last(track.samples);
-    let durationInGlobalTimescale = timestampToUnits(
-      lastSample.timestamp + lastSample.duration,
+    let durationInGlobalTimescale = intoTimescale(
+      lastSample ? lastSample.timestamp + lastSample.duration : 0,
       GLOBAL_TIMESCALE
     );
     return fullBox("tkhd", 0, 3, [
@@ -240,8 +241,8 @@ var Mp4Muxer = (() => {
   ]);
   var mdhd = (track, creationTime) => {
     let lastSample = last(track.samples);
-    let localDuration = timestampToUnits(
-      lastSample.timestamp + lastSample.duration,
+    let localDuration = intoTimescale(
+      lastSample ? lastSample.timestamp + lastSample.duration : 0,
       track.timescale
     );
     return fullBox("mdhd", 0, 0, [
@@ -358,8 +359,8 @@ var Mp4Muxer = (() => {
   ], [
     child
   ]);
-  var avcC = (track) => box("avcC", [...track.codecPrivate]);
-  var hvcC = (track) => box("hvcC", [...track.codecPrivate]);
+  var avcC = (track) => track.codecPrivate && box("avcC", [...track.codecPrivate]);
+  var hvcC = (track) => track.codecPrivate && box("hvcC", [...track.codecPrivate]);
   var soundSampleDescription = (compressionType, track, child) => box(compressionType, [
     Array(6).fill(0),
     // Reserved
@@ -388,7 +389,7 @@ var Mp4Muxer = (() => {
     // https://stackoverflow.com/a/54803118
     u32(58753152),
     // TAG(3) = Object Descriptor ([2])
-    u8(34),
+    u8(32 + track.codecPrivate.byteLength),
     // length of this OD (which includes the next 2 tags)
     u16(1),
     // ES_ID = 1
@@ -396,7 +397,7 @@ var Mp4Muxer = (() => {
     // flags etc = 0
     u32(75530368),
     // TAG(4) = ES Descriptor ([2]) embedded in above OD
-    u8(20),
+    u8(18 + track.codecPrivate.byteLength),
     // length of this ESD
     u8(64),
     // MPEG-4 Audio
@@ -410,10 +411,9 @@ var Mp4Muxer = (() => {
     // avg bitrate
     u32(92307584),
     // TAG(5) = ASC ([2],[3]) embedded in above OD
-    u8(2),
+    u8(track.codecPrivate.byteLength),
     // length
-    track.codecPrivate[0],
-    track.codecPrivate[1],
+    ...track.codecPrivate,
     u32(109084800),
     // TAG(6)
     u8(1),
@@ -422,29 +422,34 @@ var Mp4Muxer = (() => {
     // data
   ]);
   var stts = (track) => {
-    var _a, _b;
     let current = [];
     let entries = [];
     for (let sample of track.samples) {
       current.push(sample);
-      if (current.length === 1)
+      if (current.length <= 2)
         continue;
-      let referenceDelta = timestampToUnits(current[1].timestamp - current[0].timestamp, track.timescale);
-      let newDelta = timestampToUnits(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
+      let referenceDelta = intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale);
+      let newDelta = intoTimescale(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
       if (newDelta !== referenceDelta) {
         entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
         current = current.slice(-2);
       }
     }
-    entries.push({
-      sampleCount: current.length,
-      sampleDelta: timestampToUnits(((_b = (_a = current[1]) == null ? void 0 : _a.timestamp) != null ? _b : current[0].timestamp) - current[0].timestamp, track.timescale)
-    });
+    if (current.length > 0)
+      entries.push({
+        sampleCount: current.length,
+        sampleDelta: current.length === 1 ? intoTimescale(current[0].duration, track.timescale) : intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale)
+      });
     return fullBox("stts", 0, 0, [
       u32(entries.length),
       // Number of entries
-      entries.map((x) => [u32(x.sampleCount), u32(x.sampleDelta)])
-      // Time-to-sample table
+      entries.map((x) => [
+        // Time-to-sample table
+        u32(x.sampleCount),
+        // Sample count
+        u32(x.sampleDelta)
+        // Sample duration
+      ])
     ]);
   };
   var stss = (track) => {
@@ -489,13 +494,14 @@ var Mp4Muxer = (() => {
     // Sample size table
   ]);
   var stco = (track) => {
-    if (last(track.writtenChunks).offset >= __pow(2, 32))
+    if (track.writtenChunks.length > 0 && last(track.writtenChunks).offset >= __pow(2, 32)) {
       return fullBox("co64", 0, 0, [
         u32(track.writtenChunks.length),
         // Number of entries
         track.writtenChunks.map((x) => u64(x.offset))
         // Chunk offset table
       ]);
+    }
     return fullBox("stco", 0, 0, [
       u32(track.writtenChunks.length),
       // Number of entries
@@ -597,40 +603,42 @@ var Mp4Muxer = (() => {
   };
   _helper = new WeakMap();
   _helperView = new WeakMap();
-  var _target, _buffer, _bytes;
+  var _target, _buffer, _bytes, _ensureSize, ensureSize_fn;
   var ArrayBufferTargetWriter = class extends Writer {
     constructor(target) {
       super();
+      __privateAdd(this, _ensureSize);
       __privateAdd(this, _target, void 0);
       __privateAdd(this, _buffer, new ArrayBuffer(__pow(2, 16)));
       __privateAdd(this, _bytes, new Uint8Array(__privateGet(this, _buffer)));
       __privateSet(this, _target, target);
     }
-    ensureSize(size) {
-      let newLength = __privateGet(this, _buffer).byteLength;
-      while (newLength < size)
-        newLength *= 2;
-      if (newLength === __privateGet(this, _buffer).byteLength)
-        return;
-      let newBuffer = new ArrayBuffer(newLength);
-      let newBytes = new Uint8Array(newBuffer);
-      newBytes.set(__privateGet(this, _bytes), 0);
-      __privateSet(this, _buffer, newBuffer);
-      __privateSet(this, _bytes, newBytes);
-    }
     write(data) {
-      this.ensureSize(this.pos + data.byteLength);
+      __privateMethod(this, _ensureSize, ensureSize_fn).call(this, this.pos + data.byteLength);
       __privateGet(this, _bytes).set(data, this.pos);
       this.pos += data.byteLength;
     }
     finalize() {
-      this.ensureSize(this.pos);
+      __privateMethod(this, _ensureSize, ensureSize_fn).call(this, this.pos);
       __privateGet(this, _target).buffer = __privateGet(this, _buffer).slice(0, this.pos);
     }
   };
   _target = new WeakMap();
   _buffer = new WeakMap();
   _bytes = new WeakMap();
+  _ensureSize = new WeakSet();
+  ensureSize_fn = function(size) {
+    let newLength = __privateGet(this, _buffer).byteLength;
+    while (newLength < size)
+      newLength *= 2;
+    if (newLength === __privateGet(this, _buffer).byteLength)
+      return;
+    let newBuffer = new ArrayBuffer(newLength);
+    let newBytes = new Uint8Array(newBuffer);
+    newBytes.set(__privateGet(this, _bytes), 0);
+    __privateSet(this, _buffer, newBuffer);
+    __privateSet(this, _bytes, newBytes);
+  };
   var _target2, _sections;
   var StreamTargetWriter = class extends Writer {
     constructor(target) {
@@ -687,10 +695,14 @@ var Mp4Muxer = (() => {
   _sections = new WeakMap();
   var CHUNK_SIZE = __pow(2, 24);
   var MAX_CHUNKS_AT_ONCE = 2;
-  var _target3, _chunks;
+  var _target3, _chunks, _writeDataIntoChunks, writeDataIntoChunks_fn, _insertSectionIntoChunk, insertSectionIntoChunk_fn, _createChunk, createChunk_fn, _flushChunks, flushChunks_fn;
   var ChunkedStreamTargetWriter = class extends Writer {
     constructor(target) {
       super();
+      __privateAdd(this, _writeDataIntoChunks);
+      __privateAdd(this, _insertSectionIntoChunk);
+      __privateAdd(this, _createChunk);
+      __privateAdd(this, _flushChunks);
       __privateAdd(this, _target3, void 0);
       /**
        * The data is divided up into fixed-size chunks, whose contents are first filled in RAM and then flushed out.
@@ -700,91 +712,95 @@ var Mp4Muxer = (() => {
       __privateSet(this, _target3, target);
     }
     write(data) {
-      this.writeDataIntoChunks(data, this.pos);
-      this.flushChunks();
+      __privateMethod(this, _writeDataIntoChunks, writeDataIntoChunks_fn).call(this, data, this.pos);
+      __privateMethod(this, _flushChunks, flushChunks_fn).call(this);
       this.pos += data.byteLength;
-    }
-    writeDataIntoChunks(data, position) {
-      let chunkIndex = __privateGet(this, _chunks).findIndex((x) => x.start <= position && position < x.start + CHUNK_SIZE);
-      if (chunkIndex === -1)
-        chunkIndex = this.createChunk(position);
-      let chunk = __privateGet(this, _chunks)[chunkIndex];
-      let relativePosition = position - chunk.start;
-      let toWrite = data.subarray(0, Math.min(CHUNK_SIZE - relativePosition, data.byteLength));
-      chunk.data.set(toWrite, relativePosition);
-      let section = {
-        start: relativePosition,
-        end: relativePosition + toWrite.byteLength
-      };
-      this.insertSectionIntoChunk(chunk, section);
-      if (chunk.written[0].start === 0 && chunk.written[0].end === CHUNK_SIZE) {
-        chunk.shouldFlush = true;
-      }
-      if (__privateGet(this, _chunks).length > MAX_CHUNKS_AT_ONCE) {
-        for (let i = 0; i < __privateGet(this, _chunks).length - 1; i++) {
-          __privateGet(this, _chunks)[i].shouldFlush = true;
-        }
-        this.flushChunks();
-      }
-      if (toWrite.byteLength < data.byteLength) {
-        this.writeDataIntoChunks(data.subarray(toWrite.byteLength), position + toWrite.byteLength);
-      }
-    }
-    insertSectionIntoChunk(chunk, section) {
-      let low = 0;
-      let high = chunk.written.length - 1;
-      let index = -1;
-      while (low <= high) {
-        let mid = Math.floor(low + (high - low + 1) / 2);
-        if (chunk.written[mid].start <= section.start) {
-          low = mid + 1;
-          index = mid;
-        } else {
-          high = mid - 1;
-        }
-      }
-      chunk.written.splice(index + 1, 0, section);
-      if (index === -1 || chunk.written[index].end < section.start)
-        index++;
-      while (index < chunk.written.length - 1 && chunk.written[index].end >= chunk.written[index + 1].start) {
-        chunk.written[index].end = Math.max(chunk.written[index].end, chunk.written[index + 1].end);
-        chunk.written.splice(index + 1, 1);
-      }
-    }
-    createChunk(includesPosition) {
-      let start = Math.floor(includesPosition / CHUNK_SIZE) * CHUNK_SIZE;
-      let chunk = {
-        start,
-        data: new Uint8Array(CHUNK_SIZE),
-        written: [],
-        shouldFlush: false
-      };
-      __privateGet(this, _chunks).push(chunk);
-      __privateGet(this, _chunks).sort((a, b) => a.start - b.start);
-      return __privateGet(this, _chunks).indexOf(chunk);
-    }
-    flushChunks(force = false) {
-      for (let i = 0; i < __privateGet(this, _chunks).length; i++) {
-        let chunk = __privateGet(this, _chunks)[i];
-        if (!chunk.shouldFlush && !force)
-          continue;
-        for (let section of chunk.written) {
-          __privateGet(this, _target3).onData(
-            chunk.data.subarray(section.start, section.end),
-            chunk.start + section.start
-          );
-        }
-        __privateGet(this, _chunks).splice(i--, 1);
-      }
     }
     finalize() {
       var _a, _b;
-      this.flushChunks(true);
+      __privateMethod(this, _flushChunks, flushChunks_fn).call(this, true);
       (_b = (_a = __privateGet(this, _target3)).onDone) == null ? void 0 : _b.call(_a);
     }
   };
   _target3 = new WeakMap();
   _chunks = new WeakMap();
+  _writeDataIntoChunks = new WeakSet();
+  writeDataIntoChunks_fn = function(data, position) {
+    let chunkIndex = __privateGet(this, _chunks).findIndex((x) => x.start <= position && position < x.start + CHUNK_SIZE);
+    if (chunkIndex === -1)
+      chunkIndex = __privateMethod(this, _createChunk, createChunk_fn).call(this, position);
+    let chunk = __privateGet(this, _chunks)[chunkIndex];
+    let relativePosition = position - chunk.start;
+    let toWrite = data.subarray(0, Math.min(CHUNK_SIZE - relativePosition, data.byteLength));
+    chunk.data.set(toWrite, relativePosition);
+    let section = {
+      start: relativePosition,
+      end: relativePosition + toWrite.byteLength
+    };
+    __privateMethod(this, _insertSectionIntoChunk, insertSectionIntoChunk_fn).call(this, chunk, section);
+    if (chunk.written[0].start === 0 && chunk.written[0].end === CHUNK_SIZE) {
+      chunk.shouldFlush = true;
+    }
+    if (__privateGet(this, _chunks).length > MAX_CHUNKS_AT_ONCE) {
+      for (let i = 0; i < __privateGet(this, _chunks).length - 1; i++) {
+        __privateGet(this, _chunks)[i].shouldFlush = true;
+      }
+      __privateMethod(this, _flushChunks, flushChunks_fn).call(this);
+    }
+    if (toWrite.byteLength < data.byteLength) {
+      __privateMethod(this, _writeDataIntoChunks, writeDataIntoChunks_fn).call(this, data.subarray(toWrite.byteLength), position + toWrite.byteLength);
+    }
+  };
+  _insertSectionIntoChunk = new WeakSet();
+  insertSectionIntoChunk_fn = function(chunk, section) {
+    let low = 0;
+    let high = chunk.written.length - 1;
+    let index = -1;
+    while (low <= high) {
+      let mid = Math.floor(low + (high - low + 1) / 2);
+      if (chunk.written[mid].start <= section.start) {
+        low = mid + 1;
+        index = mid;
+      } else {
+        high = mid - 1;
+      }
+    }
+    chunk.written.splice(index + 1, 0, section);
+    if (index === -1 || chunk.written[index].end < section.start)
+      index++;
+    while (index < chunk.written.length - 1 && chunk.written[index].end >= chunk.written[index + 1].start) {
+      chunk.written[index].end = Math.max(chunk.written[index].end, chunk.written[index + 1].end);
+      chunk.written.splice(index + 1, 1);
+    }
+  };
+  _createChunk = new WeakSet();
+  createChunk_fn = function(includesPosition) {
+    let start = Math.floor(includesPosition / CHUNK_SIZE) * CHUNK_SIZE;
+    let chunk = {
+      start,
+      data: new Uint8Array(CHUNK_SIZE),
+      written: [],
+      shouldFlush: false
+    };
+    __privateGet(this, _chunks).push(chunk);
+    __privateGet(this, _chunks).sort((a, b) => a.start - b.start);
+    return __privateGet(this, _chunks).indexOf(chunk);
+  };
+  _flushChunks = new WeakSet();
+  flushChunks_fn = function(force = false) {
+    for (let i = 0; i < __privateGet(this, _chunks).length; i++) {
+      let chunk = __privateGet(this, _chunks)[i];
+      if (!chunk.shouldFlush && !force)
+        continue;
+      for (let section of chunk.written) {
+        __privateGet(this, _target3).onData(
+          chunk.data.subarray(section.start, section.end),
+          chunk.start + section.start
+        );
+      }
+      __privateGet(this, _chunks).splice(i--, 1);
+    }
+  };
   var FileSystemWritableFileStreamTargetWriter = class extends ChunkedStreamTargetWriter {
     constructor(target) {
       super(new StreamTarget(
@@ -799,7 +815,7 @@ var Mp4Muxer = (() => {
 
   // src/muxer.ts
   var GLOBAL_TIMESCALE = 1e3;
-  var TIMESTAMP_OFFSET = 2082848400;
+  var TIMESTAMP_OFFSET = 2082844800;
   var MAX_CHUNK_DURATION = 0.5;
   var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
   var SUPPORTED_AUDIO_CODECS = ["aac"];
@@ -917,7 +933,7 @@ var Mp4Muxer = (() => {
         },
         timescale: 720,
         // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates
-        codecPrivate: null,
+        codecPrivate: new Uint8Array(0),
         samples: [],
         writtenChunks: [],
         currentChunk: null
@@ -933,7 +949,7 @@ var Mp4Muxer = (() => {
           sampleRate: __privateGet(this, _options).audio.sampleRate
         },
         timescale: __privateGet(this, _options).audio.sampleRate,
-        codecPrivate: null,
+        codecPrivate: new Uint8Array(0),
         samples: [],
         writtenChunks: [],
         currentChunk: null

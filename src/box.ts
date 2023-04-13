@@ -37,8 +37,8 @@ export const fullBox = (
 	children
 );
 
-const timestampToUnits = (timestamp: number, timescale: number) => {
-	return Math.round(timestamp * timescale);
+const intoTimescale = (timeInSeconds: number, timescale: number) => {
+	return Math.round(timeInSeconds * timescale);
 };
 
 /**
@@ -79,8 +79,9 @@ export const mvhd = (
 	creationTime: number,
 	tracks: Track[]
 ) => {
-	let duration = timestampToUnits(Math.max(
-		...tracks.map(x => last(x.samples).timestamp + last(x.samples).duration)
+	let duration = intoTimescale(Math.max(
+		0,
+		...tracks.filter(x => x.samples.length > 0).map(x => last(x.samples).timestamp + last(x.samples).duration)
 	), GLOBAL_TIMESCALE);
 	let nextTrackId = Math.max(...tracks.map(x => x.id)) + 1;
 
@@ -114,8 +115,8 @@ export const tkhd = (
 	creationTime: number
 ) => {
 	let lastSample = last(track.samples);
-	let durationInGlobalTimescale = timestampToUnits(
-		lastSample.timestamp + lastSample.duration,
+	let durationInGlobalTimescale = intoTimescale(
+		lastSample ? lastSample.timestamp + lastSample.duration : 0,
 		GLOBAL_TIMESCALE
 	);
 
@@ -149,8 +150,8 @@ export const mdhd = (
 	creationTime: number
 ) => {
 	let lastSample = last(track.samples);
-	let localDuration = timestampToUnits(
-		lastSample.timestamp + lastSample.duration,
+	let localDuration = intoTimescale(
+		lastSample ? lastSample.timestamp + lastSample.duration : 0,
 		track.timescale
 	);
 
@@ -275,10 +276,10 @@ export const videoSampleDescription = (
 ]);
 
 /** AVC Configuration Box: Provides additional information to the decoder. */
-export const avcC = (track: Track) => box('avcC', [...track.codecPrivate]);
+export const avcC = (track: Track) => track.codecPrivate && box('avcC', [...track.codecPrivate]);
 
 /** HEVC Configuration Box: Provides additional information to the decoder. */
-export const hvcC = (track: Track) => box('hvcC', [...track.codecPrivate]);
+export const hvcC = (track: Track) => track.codecPrivate && box('hvcC', [...track.codecPrivate]);
 
 /** Sound Sample Description Box: Contains information that defines how to interpret sound media data. */
 export const soundSampleDescription = (
@@ -304,19 +305,19 @@ export const soundSampleDescription = (
 export const esds = (track: Track) => fullBox('esds', 0, 0, [
 	// https://stackoverflow.com/a/54803118
 	u32(0x03808080), // TAG(3) = Object Descriptor ([2])
-	u8(0x22), // length of this OD (which includes the next 2 tags)
+	u8(0x20 + track.codecPrivate.byteLength), // length of this OD (which includes the next 2 tags)
 	u16(1), // ES_ID = 1
 	u8(0x00), // flags etc = 0
 	u32(0x04808080), // TAG(4) = ES Descriptor ([2]) embedded in above OD
-	u8(0x14), // length of this ESD
+	u8(0x12 + track.codecPrivate.byteLength), // length of this ESD
 	u8(0x40), // MPEG-4 Audio
 	u8(0x15), // stream type(6bits)=5 audio, flags(2bits)=1
 	u24(0), // 24bit buffer size
 	u32(0x0001FC17), // max bitrate
 	u32(0x0001FC17), // avg bitrate
 	u32(0x05808080), // TAG(5) = ASC ([2],[3]) embedded in above OD
-	u8(0x02), // length
-	track.codecPrivate[0], track.codecPrivate[1],
+	u8(track.codecPrivate.byteLength), // length
+	...track.codecPrivate,
 	u32(0x06808080), // TAG(6)
 	u8(0x01), // length
 	u8(0x02) // data
@@ -333,25 +334,30 @@ export const stts = (track: Track) => {
 
 	for (let sample of track.samples) {
 		current.push(sample);
-		if (current.length === 1) continue;
+		if (current.length <= 2) continue;
 
-		let referenceDelta = timestampToUnits(current[1].timestamp - current[0].timestamp, track.timescale);
-		let newDelta = timestampToUnits(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
+		let referenceDelta = intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale);
+		let newDelta = intoTimescale(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
+
 		if (newDelta !== referenceDelta) {
 			entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
 			current = current.slice(-2);
 		}
 	}
 
-	entries.push({
+	if (current.length > 0) entries.push({
 		sampleCount: current.length,
-		sampleDelta:
-			timestampToUnits((current[1]?.timestamp ?? current[0].timestamp) - current[0].timestamp, track.timescale)
+		sampleDelta: current.length === 1
+			? intoTimescale(current[0].duration, track.timescale)
+			: intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale)
 	});
 
 	return fullBox('stts', 0, 0, [
 		u32(entries.length), // Number of entries
-		entries.map(x => [u32(x.sampleCount), u32(x.sampleDelta)]) // Time-to-sample table
+		entries.map(x => [ // Time-to-sample table
+			u32(x.sampleCount), // Sample count
+			u32(x.sampleDelta) // Sample duration
+		])
 	]);
 };
 
@@ -403,11 +409,13 @@ export const stsz = (track: Track) => fullBox('stsz', 0, 0, [
 
 /** Chunk Offset Box: Identifies the location of each chunk of data in the media's data stream, relative to the file. */
 export const stco = (track: Track) => {
-	// If the file is large, use the co64 box
-	if (last(track.writtenChunks).offset >= 2**32) return fullBox('co64', 0, 0, [
-		u32(track.writtenChunks.length), // Number of entries
-		track.writtenChunks.map(x => u64(x.offset)) // Chunk offset table
-	]);
+	if (track.writtenChunks.length > 0 && last(track.writtenChunks).offset >= 2**32) {
+		// If the file is large, use the co64 box
+		return fullBox('co64', 0, 0, [
+			u32(track.writtenChunks.length), // Number of entries
+			track.writtenChunks.map(x => u64(x.offset)) // Chunk offset table
+		]);
+	}
 
 	return fullBox('stco', 0, 0, [
 		u32(track.writtenChunks.length), // Number of entries
