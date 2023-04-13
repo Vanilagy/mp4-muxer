@@ -17,23 +17,23 @@ The following is an example for a common usage of this library:
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
 let muxer = new Muxer({
-	target: new ArrayBufferTarget(),
-	video: {
-		codec: 'avc',
-		width: 1280,
-		height: 720
-	}
+    target: new ArrayBufferTarget(),
+    video: {
+        codec: 'avc',
+        width: 1280,
+        height: 720
+    }
 });
 
 let videoEncoder = new VideoEncoder({
-	output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-	error: e => console.error(e)
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: e => console.error(e)
 });
 videoEncoder.configure({
-	codec: 'avc1.640028',
-	width: 1280,
-	height: 720,
-	bitrate: 1e6
+    codec: 'avc1.640028',
+    width: 1280,
+    height: 720,
+    bitrate: 1e6
 });
 
 /* Encode some frames... */
@@ -77,24 +77,24 @@ let muxer = new Muxer(options);
 The available options are defined by the following interface:
 ```ts
 interface MuxerOptions {
-	target:
-		| ArrayBufferTarget
-		| StreamTarget
-		| FileSystemWritableFileStreamTarget,
+    target:
+        | ArrayBufferTarget
+        | StreamTarget
+        | FileSystemWritableFileStreamTarget,
 
-	video?: {
-		codec: 'avc' | 'hevc',
-		width: number,
-		height: number
-	},
+    video?: {
+        codec: 'avc' | 'hevc',
+        width: number,
+        height: number
+    },
 
-	audio?: {
-		codec: 'aac',
-		numberOfChannels: number,
-		sampleRate: number
-	},
+    audio?: {
+        codec: 'aac',
+        numberOfChannels: number,
+        sampleRate: number
+    },
 
-	firstTimestampBehavior?: 'strict' | 'offset' | 'permissive'
+    firstTimestampBehavior?: 'strict' | 'offset' | 'permissive'
 }
 ```
 Codecs currently supported by this library are AVC/H.264 and HEVC/H.265 for video, and AAC for audio.
@@ -102,72 +102,72 @@ Codecs currently supported by this library are AVC/H.264 and HEVC/H.265 for vide
 This option specifies where the data created by the muxer will be written. The options are:
 - `ArrayBufferTarget`: The file data will be written into a single large buffer, which is then stored in the target.
 
-	```js
-	import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
+    ```js
+    import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
-	let muxer = new Muxer({
-		target: new ArrayBufferTarget(),
-		// ...
-	});
+    let muxer = new Muxer({
+        target: new ArrayBufferTarget(),
+        // ...
+    });
 
-	// ...
+    // ...
 
-	muxer.finalize();
-	let { buffer } = muxer.target;
-	```
+    muxer.finalize();
+    let { buffer } = muxer.target;
+    ```
 - `StreamTarget`: This target defines callbacks that will get called whenever there is new data available  - this is useful if
-	you want to stream the data, e.g. pipe it somewhere else. The constructor has the following signature:
+    you want to stream the data, e.g. pipe it somewhere else. The constructor has the following signature:
 
-	```ts
-	constructor(
-		public onData: (data: Uint8Array, position: number) => void,
-		public onDone?: () => void,
-		public options?: { chunked: true }
-	);
-	```
+    ```ts
+    constructor(
+        public onData: (data: Uint8Array, position: number) => void,
+        public onDone?: () => void,
+        public options?: { chunked: true }
+    );
+    ```
 
-	The `position` parameter specifies the offset in bytes at which the data should be written. When using
-	`chunked: true` in the options, data created by the muxer will first be accumulated and only written out once it has
-	reached sufficient size (~16 MB). This is useful for reducing the total amount of writes, at the cost of latency.
-	
-	Note that this target is **not** intended for *live-streaming*, i.e. playback before muxing has finished.
+    The `position` parameter specifies the offset in bytes at which the data should be written. When using
+    `chunked: true` in the options, data created by the muxer will first be accumulated and only written out once it has
+    reached sufficient size (~16 MB). This is useful for reducing the total amount of writes, at the cost of latency.
+    
+    Note that this target is **not** intended for *live-streaming*, i.e. playback before muxing has finished.
 
-	```js
-	import { Muxer, StreamTarget } from 'mp4-muxer';
+    ```js
+    import { Muxer, StreamTarget } from 'mp4-muxer';
 
-	let muxer = new Muxer({
-		target: new StreamTarget(
-			(data, position) => { /* Do something with the data */ },
-			() => { /* Muxing has finished */ }
-		),
-		// ...
-	});
-	```
+    let muxer = new Muxer({
+        target: new StreamTarget(
+            (data, position) => { /* Do something with the data */ },
+            () => { /* Muxing has finished */ }
+        ),
+        // ...
+    });
+    ```
 - `FileSystemWritableFileStreamTarget`: This is essentially a wrapper around `StreamTarget` with the intention of
-	simplifying the use of this library with the File System Access API. Writing the file directly to disk as it's being
-	created comes with many benefits, such as creating files way larger than the available RAM.
+    simplifying the use of this library with the File System Access API. Writing the file directly to disk as it's being
+    created comes with many benefits, such as creating files way larger than the available RAM.
 
-	```js
-	import { Muxer, FileSystemWritableFileStreamTarget } from 'mp4-muxer';
-	
-	let fileHandle = await window.showSaveFilePicker({
-		suggestedName: `video.mp4`,
-		types: [{
-			description: 'Video File',
-			accept: { 'video/mp4': ['.mp4'] }
-		}],
-	});
-	let fileStream = await fileHandle.createWritable();
-	let muxer = new Muxer({
-		target: new FileSystemWritableFileStreamTarget(fileStream),
-		// ...
-	});
-	
-	// ...
+    ```js
+    import { Muxer, FileSystemWritableFileStreamTarget } from 'mp4-muxer';
+    
+    let fileHandle = await window.showSaveFilePicker({
+        suggestedName: `video.mp4`,
+        types: [{
+            description: 'Video File',
+            accept: { 'video/mp4': ['.mp4'] }
+        }],
+    });
+    let fileStream = await fileHandle.createWritable();
+    let muxer = new Muxer({
+        target: new FileSystemWritableFileStreamTarget(fileStream),
+        // ...
+    });
+    
+    // ...
 
-	muxer.finalize();
-	await fileStream.close(); // Make sure to close the stream
-	```
+    muxer.finalize();
+    await fileStream.close(); // Make sure to close the stream
+    ```
 #### `firstTimestampBehavior` (optional)
 Specifies how to deal with the first chunk in each track having a non-zero timestamp. In the default strict mode,
 timestamps must start with 0 to ensure proper playback. However, when directly pumping video frames or audio data
@@ -182,15 +182,15 @@ starts at 0.
 Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxer using the following methods:
 ```ts
 addVideoChunk(
-	chunk: EncodedVideoChunk,
-	meta: EncodedVideoChunkMetadata,
-	timestamp?: number
+    chunk: EncodedVideoChunk,
+    meta: EncodedVideoChunkMetadata,
+    timestamp?: number
 ): void;
 
 addAudioChunk(
-	chunk: EncodedAudioChunk,
-	meta: EncodedAudioChunkMetadata,
-	timestamp?: number
+    chunk: EncodedAudioChunk,
+    meta: EncodedAudioChunkMetadata,
+    timestamp?: number
 ): void;
 ```
 
@@ -201,8 +201,8 @@ The metadata comes from the second parameter of the `output` callback given to t
 VideoEncoder or AudioEncoder's constructor and needs to be passed into the muxer, like so:
 ```js
 let videoEncoder = new VideoEncoder({
-	output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
-	error: e => console.error(e)
+    output: (chunk, meta) => muxer.addVideoChunk(chunk, meta),
+    error: e => console.error(e)
 });
 videoEncoder.configure(/* ... */);
 ```
@@ -211,19 +211,19 @@ Should you have obtained your encoded media data from a source other than the We
 methods to directly send your raw data to the muxer:
 ```ts
 addVideoChunkRaw(
-	data: Uint8Array,
-	type: 'key' | 'delta',
-	timestamp: number, // in microseconds
-	duration: number, // in microseconds
-	meta?: EncodedVideoChunkMetadata
+    data: Uint8Array,
+    type: 'key' | 'delta',
+    timestamp: number, // in microseconds
+    duration: number, // in microseconds
+    meta?: EncodedVideoChunkMetadata
 ): void;
 
 addAudioChunkRaw(
-	data: Uint8Array,
-	type: 'key' | 'delta',
-	timestamp: number, // in microseconds
-	duration: number, // in microseconds
-	meta?: EncodedAudioChunkMetadata
+    data: Uint8Array,
+    type: 'key' | 'delta',
+    timestamp: number, // in microseconds
+    duration: number, // in microseconds
+    meta?: EncodedAudioChunkMetadata
 ): void;
 ```
 
