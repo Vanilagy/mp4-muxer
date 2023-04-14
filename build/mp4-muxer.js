@@ -820,12 +820,14 @@ var Mp4Muxer = (() => {
   var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
   var SUPPORTED_AUDIO_CODECS = ["aac"];
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
-  var _options, _writer, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _writeCurrentChunk, writeCurrentChunk_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
+  var _options, _writer, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _writeCurrentChunk, writeCurrentChunk_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
   var Muxer = class {
     constructor(options) {
       __privateAdd(this, _validateOptions);
       __privateAdd(this, _writeHeader);
       __privateAdd(this, _prepareTracks);
+      // https://wiki.multimedia.cx/index.php/MPEG-4_Audio
+      __privateAdd(this, _generateMpeg4AudioSpecificConfig);
       __privateAdd(this, _addSampleToTrack);
       __privateAdd(this, _validateTimestamp);
       __privateAdd(this, _writeCurrentChunk);
@@ -943,6 +945,13 @@ var Mp4Muxer = (() => {
       });
     }
     if (__privateGet(this, _options).audio) {
+      let guessedCodecPrivate = __privateMethod(this, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn).call(
+        this,
+        2,
+        // Object type for AAC-LC, since it's the most common
+        __privateGet(this, _options).audio.sampleRate,
+        __privateGet(this, _options).audio.numberOfChannels
+      );
       __privateSet(this, _audioTrack, {
         id: __privateGet(this, _options).video ? 2 : 1,
         info: {
@@ -952,7 +961,7 @@ var Mp4Muxer = (() => {
           sampleRate: __privateGet(this, _options).audio.sampleRate
         },
         timescale: __privateGet(this, _options).audio.sampleRate,
-        codecPrivate: new Uint8Array(0),
+        codecPrivate: guessedCodecPrivate,
         samples: [],
         writtenChunks: [],
         currentChunk: null,
@@ -960,6 +969,25 @@ var Mp4Muxer = (() => {
         lastTimestamp: -1
       });
     }
+  };
+  _generateMpeg4AudioSpecificConfig = new WeakSet();
+  generateMpeg4AudioSpecificConfig_fn = function(objectType, sampleRate, numberOfChannels) {
+    let frequencyIndices = [96e3, 88200, 64e3, 48e3, 44100, 32e3, 24e3, 22050, 16e3, 12e3, 11025, 8e3, 7350];
+    let frequencyIndex = frequencyIndices.indexOf(sampleRate);
+    let channelConfig = numberOfChannels;
+    let configBits = "";
+    configBits += objectType.toString(2).padStart(5, "0");
+    configBits += frequencyIndex.toString(2).padStart(4, "0");
+    if (frequencyIndex === 15)
+      configBits += sampleRate.toString(2).padStart(24, "0");
+    configBits += channelConfig.toString(2).padStart(4, "0");
+    let paddingLength = Math.ceil(configBits.length / 8) * 8;
+    configBits = configBits.padEnd(paddingLength, "0");
+    let configBytes = new Uint8Array(configBits.length / 8);
+    for (let i = 0; i < configBits.length; i += 8) {
+      configBytes[i / 8] = parseInt(configBits.slice(i, i + 8), 2);
+    }
+    return configBytes;
   };
   _addSampleToTrack = new WeakSet();
   addSampleToTrack_fn = function(track, data, type, timestamp, duration, meta) {

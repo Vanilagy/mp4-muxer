@@ -149,6 +149,13 @@ export class Muxer<T extends Target> {
 		}
 
 		if (this.#options.audio) {
+			// For the case that we don't get any further decoder details, we can still make a pretty educated guess:
+			let guessedCodecPrivate = this.#generateMpeg4AudioSpecificConfig(
+				2, // Object type for AAC-LC, since it's the most common
+				this.#options.audio.sampleRate,
+				this.#options.audio.numberOfChannels
+			);
+
 			this.#audioTrack = {
 				id: this.#options.video ? 2 : 1,
 				info: {
@@ -158,7 +165,7 @@ export class Muxer<T extends Target> {
 					sampleRate: this.#options.audio.sampleRate
 				},
 				timescale: this.#options.audio.sampleRate,
-				codecPrivate: new Uint8Array(0),
+				codecPrivate: guessedCodecPrivate,
 				samples: [],
 				writtenChunks: [],
 				currentChunk: null,
@@ -166,6 +173,33 @@ export class Muxer<T extends Target> {
 				lastTimestamp: -1
 			};
 		}
+	}
+
+	// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
+	#generateMpeg4AudioSpecificConfig(objectType: number, sampleRate: number, numberOfChannels: number) {
+		let frequencyIndices =
+			[96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+		let frequencyIndex = frequencyIndices.indexOf(sampleRate);
+		let channelConfig = numberOfChannels;
+
+		let configBits = '';
+		configBits += objectType.toString(2).padStart(5, '0');
+
+		configBits += frequencyIndex.toString(2).padStart(4, '0');
+		if (frequencyIndex === 15) configBits += sampleRate.toString(2).padStart(24, '0');
+
+		configBits += channelConfig.toString(2).padStart(4, '0');
+
+		// Pad with 0 bits to fit into a multiple of bytes
+		let paddingLength = Math.ceil(configBits.length / 8) * 8;
+		configBits = configBits.padEnd(paddingLength, '0');
+
+		let configBytes = new Uint8Array(configBits.length / 8);
+		for (let i = 0; i < configBits.length; i += 8) {
+			configBytes[i / 8] = parseInt(configBits.slice(i, i + 8), 2);
+		}
+
+		return configBytes;
 	}
 
 	addVideoChunk(sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata, timestamp?: number) {
