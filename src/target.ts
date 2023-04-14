@@ -8,7 +8,7 @@ export class StreamTarget {
 	constructor(
 		public onData: (data: Uint8Array, position: number) => void,
 		public onDone?: () => void,
-		public options?: { chunked: true }
+		public options?: { chunked?: true }
 	) {}
 }
 

@@ -122,7 +122,7 @@ This option specifies where the data created by the muxer will be written. The o
     constructor(
         onData: (data: Uint8Array, position: number) => void,
         onDone?: () => void,
-        options?: { chunked: true }
+        options?: { chunked?: true }
     );
     ```
 
@@ -248,7 +248,7 @@ MP4 files support variable frame rate, however some players (such as QuickTime) 
 when the timestamps are irregular. Therefore, whenever possible, try aiming for a fixed frame rate.
 
 ## Implementation & development
-MP4 files are based on the ISO Base Media Format, which structures its files as a hierachy of boxes (or atoms). The
+MP4 files are based on the ISO Base Media Format, which structures its files as a hierarchy of boxes (or atoms). The
 standards used to implement this library were
 [ISO/IEC 14496-1](http://netmedia.zju.edu.cn/multimedia2013/mpeg-4/ISO%20IEC%2014496-1%20MPEG-4%20System%20Standard.pdf),
 [ISO/IEC 14496-12](https://web.archive.org/web/20180219054429/http://l.web.umkc.edu/lizhu/teaching/2016sp.video-communication/ref/mp4.pdf)
