@@ -880,6 +880,7 @@ var Mp4Muxer = (() => {
         throw new Error("No audio track declared.");
       __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _audioTrack), data, type, timestamp, duration, meta);
     }
+    /** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
     finalize() {
       if (__privateGet(this, _videoTrack))
         __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, __privateGet(this, _videoTrack));
@@ -893,6 +894,7 @@ var Mp4Muxer = (() => {
       __privateGet(this, _writer).writeBox(movieBox);
       __privateMethod(this, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn).call(this);
       __privateGet(this, _writer).finalize();
+      __privateSet(this, _finalized, true);
     }
   };
   _options = new WeakMap();

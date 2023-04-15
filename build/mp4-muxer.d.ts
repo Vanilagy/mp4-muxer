@@ -60,10 +60,19 @@ declare interface MuxerOptions<T extends Target> {
 
 declare type Target = ArrayBufferTarget | StreamTarget | FileSystemWritableFileStreamTarget;
 
+/** The file data will be written into a single large buffer, which is then stored in `buffer`. */
 declare class ArrayBufferTarget {
 	buffer: ArrayBuffer;
 }
 
+/**
+ * This target defines callbacks that will get called whenever there is new data available  - this is useful if
+ * you want to stream the data, e.g. pipe it somewhere else.
+ *
+ * When using `chunked: true` in the options, data created by the muxer will first be accumulated and only written out
+ * once it has reached sufficient size (~16 MB). This is useful for reducing the total amount of writes, at the cost of
+ * latency.
+ */
 declare class StreamTarget {
 	constructor(
 		onData: (data: Uint8Array, position: number) => void,
@@ -72,6 +81,11 @@ declare class StreamTarget {
 	);
 }
 
+/**
+ * This is essentially a wrapper around `StreamTarget` with the intention of simplifying the use of this library with
+ * the File System Access API. Writing the file directly to disk as it's being created comes with many benefits, such as
+ * creating files way larger than the available RAM.
+ */
 declare class FileSystemWritableFileStreamTarget {
 	constructor(stream: FileSystemWritableFileStream);
 }

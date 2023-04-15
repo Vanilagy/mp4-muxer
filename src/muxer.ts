@@ -257,7 +257,7 @@ export class Muxer<T extends Target> {
 		timestampInSeconds = this.#validateTimestamp(timestampInSeconds, track);
 
 		if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
-			if (track.currentChunk) this.#writeCurrentChunk(track);
+			if (track.currentChunk) this.#writeCurrentChunk(track); // Chunk is long enough, write it out
 
 			track.currentChunk = {
 				startTimestamp: timestampInSeconds,
@@ -330,6 +330,7 @@ export class Muxer<T extends Target> {
 		}
 	}
 
+	/** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
 	finalize() {
 		if (this.#videoTrack) this.#writeCurrentChunk(this.#videoTrack);
 		if (this.#audioTrack) this.#writeCurrentChunk(this.#audioTrack);
@@ -343,7 +344,8 @@ export class Muxer<T extends Target> {
 		this.#writer.writeBox(movieBox);
 
 		this.#maybeFlushStreamingTargetWriter();
-
 		this.#writer.finalize();
+
+		this.#finalized = true;
 	}
 }
