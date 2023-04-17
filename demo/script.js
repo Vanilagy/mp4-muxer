@@ -34,7 +34,7 @@ const startRecording = async () => {
 		} catch (e) {}
 		if (!audioTrack) console.warn("Couldn't acquire a user media audio track.");
 	} else {
-		console.warn("AudioEncoder not available; no need to acquire a user media audio track.");
+		console.warn('AudioEncoder not available; no need to acquire a user media audio track.');
 	}
 
 	endRecordingButton.style.display = 'block';
@@ -62,7 +62,7 @@ const startRecording = async () => {
 		error: e => console.error(e)
 	});
 	videoEncoder.configure({
-		codec: 'avc1.640028',
+		codec: 'avc1.42001f',
 		width: canvas.width,
 		height: canvas.height,
 		bitrate: 1e6

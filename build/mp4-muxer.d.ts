@@ -52,10 +52,8 @@ declare interface MuxerOptions<T extends Target> {
 	 *
 	 * Use `'offset'` to offset the timestamp of each video track by that track's first chunk's timestamp. This way, it
 	 * starts at 0.
-	 *
-	 * Use `'permissive'` to allow the first timestamp to be non-zero.
 	 */
-	firstTimestampBehavior?: 'strict' | 'offset' | 'permissive'
+	firstTimestampBehavior?: 'strict' | 'offset'
 }
 
 declare type Target = ArrayBufferTarget | StreamTarget | FileSystemWritableFileStreamTarget;

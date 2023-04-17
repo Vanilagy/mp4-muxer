@@ -1,6 +1,5 @@
-import { GLOBAL_TIMESCALE, Sample, Track } from "./muxer";
-import { ascii, i16, last, u16, u64, u8 } from "./misc";
-import { u32, fixed32, fixed16, u24 } from "./misc";
+import { GLOBAL_TIMESCALE, Track } from './muxer';
+import { ascii, i16, intoTimescale, last, u16, u64, u8, u32, fixed32, fixed16, u24 } from './misc';
 
 const IDENTITY_MATRIX = [
 	0x00010000, 0, 0,
@@ -36,10 +35,6 @@ export const fullBox = (
 	[u8(version), u24(flags), contents ?? []],
 	children
 );
-
-const intoTimescale = (timeInSeconds: number, timescale: number) => {
-	return Math.round(timeInSeconds * timescale);
-};
 
 /**
  * File Type Compatibility Box: Allows the reader to determine whether this is a type of file that the
@@ -329,32 +324,9 @@ export const esds = (track: Track) => fullBox('esds', 0, 0, [
  * will be grouped.
  */
 export const stts = (track: Track) => {
-	let current: Sample[] = [];
-	let entries: { sampleCount: number, sampleDelta: number }[] = [];
-
-	for (let sample of track.samples) {
-		current.push(sample);
-		if (current.length <= 2) continue;
-
-		let referenceDelta = intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale);
-		let newDelta = intoTimescale(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
-
-		if (newDelta !== referenceDelta) {
-			entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
-			current = current.slice(-2);
-		}
-	}
-
-	if (current.length > 0) entries.push({
-		sampleCount: current.length,
-		sampleDelta: current.length === 1
-			? intoTimescale(current[0].duration, track.timescale)
-			: intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale)
-	});
-
 	return fullBox('stts', 0, 0, [
-		u32(entries.length), // Number of entries
-		entries.map(x => [ // Time-to-sample table
+		u32(track.timeToSampleTable.length), // Number of entries
+		track.timeToSampleTable.map(x => [ // Time-to-sample table
 			u32(x.sampleCount), // Sample count
 			u32(x.sampleDelta) // Sample duration
 		])
@@ -379,20 +351,9 @@ export const stss = (track: Track) => {
  * in a compactly-coded fashion.
  */
 export const stsc = (track: Track) => {
-	let compactlyCodedChunks: {
-		firstChunk: number,
-		samplesPerChunk: number
-	}[] = [];
-	for (let i = 0; i < track.writtenChunks.length; i++) {
-		let next = track.writtenChunks[i];
-		if (compactlyCodedChunks.length === 0 || last(compactlyCodedChunks).samplesPerChunk !== next.sampleCount) {
-			compactlyCodedChunks.push({ firstChunk: i + 1, samplesPerChunk: next.sampleCount });
-		}
-	}
-
 	return fullBox('stsc', 0, 0, [
-		u32(compactlyCodedChunks.length), // Number of entries
-		compactlyCodedChunks.map(x => [ // Sample-to-chunk table
+		u32(track.compactlyCodedChunkTable.length), // Number of entries
+		track.compactlyCodedChunkTable.map(x => [ // Sample-to-chunk table
 			u32(x.firstChunk), // First chunk
 			u32(x.samplesPerChunk), // Samples per chunk
 			u32(1) // Sample description index

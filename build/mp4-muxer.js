@@ -110,6 +110,10 @@ var Mp4Muxer = (() => {
   var last = (arr) => {
     return arr && arr[arr.length - 1];
   };
+  var intoTimescale = (timeInSeconds, timescale, round = true) => {
+    let value = timeInSeconds * timescale;
+    return round ? Math.round(value) : value;
+  };
 
   // src/box.ts
   var IDENTITY_MATRIX = [
@@ -133,9 +137,6 @@ var Mp4Muxer = (() => {
     [u8(version), u24(flags), contents != null ? contents : []],
     children
   );
-  var intoTimescale = (timeInSeconds, timescale) => {
-    return Math.round(timeInSeconds * timescale);
-  };
   var ftyp = (holdsHevc) => {
     if (holdsHevc)
       return box("ftyp", [
@@ -422,28 +423,10 @@ var Mp4Muxer = (() => {
     // data
   ]);
   var stts = (track) => {
-    let current = [];
-    let entries = [];
-    for (let sample of track.samples) {
-      current.push(sample);
-      if (current.length <= 2)
-        continue;
-      let referenceDelta = intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale);
-      let newDelta = intoTimescale(sample.timestamp - current[current.length - 2].timestamp, track.timescale);
-      if (newDelta !== referenceDelta) {
-        entries.push({ sampleCount: current.length - 1, sampleDelta: referenceDelta });
-        current = current.slice(-2);
-      }
-    }
-    if (current.length > 0)
-      entries.push({
-        sampleCount: current.length,
-        sampleDelta: current.length === 1 ? intoTimescale(current[0].duration, track.timescale) : intoTimescale(current[1].timestamp - current[0].timestamp, track.timescale)
-      });
     return fullBox("stts", 0, 0, [
-      u32(entries.length),
+      u32(track.timeToSampleTable.length),
       // Number of entries
-      entries.map((x) => [
+      track.timeToSampleTable.map((x) => [
         // Time-to-sample table
         u32(x.sampleCount),
         // Sample count
@@ -464,17 +447,10 @@ var Mp4Muxer = (() => {
     ]);
   };
   var stsc = (track) => {
-    let compactlyCodedChunks = [];
-    for (let i = 0; i < track.writtenChunks.length; i++) {
-      let next = track.writtenChunks[i];
-      if (compactlyCodedChunks.length === 0 || last(compactlyCodedChunks).samplesPerChunk !== next.sampleCount) {
-        compactlyCodedChunks.push({ firstChunk: i + 1, samplesPerChunk: next.sampleCount });
-      }
-    }
     return fullBox("stsc", 0, 0, [
-      u32(compactlyCodedChunks.length),
+      u32(track.compactlyCodedChunkTable.length),
       // Number of entries
-      compactlyCodedChunks.map((x) => [
+      track.compactlyCodedChunkTable.map((x) => [
         // Sample-to-chunk table
         u32(x.firstChunk),
         // First chunk
@@ -819,7 +795,7 @@ var Mp4Muxer = (() => {
   var MAX_CHUNK_DURATION = 0.5;
   var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
   var SUPPORTED_AUDIO_CODECS = ["aac"];
-  var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "permissive"];
+  var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset"];
   var _options, _writer, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _writeCurrentChunk, writeCurrentChunk_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
   var Muxer = class {
     constructor(options) {
@@ -943,7 +919,10 @@ var Mp4Muxer = (() => {
         writtenChunks: [],
         currentChunk: null,
         firstTimestamp: void 0,
-        lastTimestamp: -1
+        lastTimestamp: -1,
+        timeToSampleTable: [],
+        lastTimescaleUnits: null,
+        compactlyCodedChunkTable: []
       });
     }
     if (__privateGet(this, _options).audio) {
@@ -968,7 +947,10 @@ var Mp4Muxer = (() => {
         writtenChunks: [],
         currentChunk: null,
         firstTimestamp: void 0,
-        lastTimestamp: -1
+        lastTimestamp: -1,
+        timeToSampleTable: [],
+        lastTimescaleUnits: null,
+        compactlyCodedChunkTable: []
       });
     }
   };
@@ -1019,6 +1001,30 @@ var Mp4Muxer = (() => {
       size: data.byteLength,
       type
     });
+    if (track.lastTimescaleUnits !== null) {
+      let timescaleUnits = intoTimescale(timestampInSeconds, track.timescale, false);
+      let delta = Math.round(timescaleUnits - track.lastTimescaleUnits);
+      track.lastTimescaleUnits += delta;
+      let lastTableEntry = last(track.timeToSampleTable);
+      if (lastTableEntry.sampleCount === 1) {
+        lastTableEntry.sampleDelta = delta;
+        lastTableEntry.sampleCount++;
+      } else if (lastTableEntry.sampleDelta === delta) {
+        lastTableEntry.sampleCount++;
+      } else {
+        lastTableEntry.sampleCount--;
+        track.timeToSampleTable.push({
+          sampleCount: 2,
+          sampleDelta: delta
+        });
+      }
+    } else {
+      track.lastTimescaleUnits = 0;
+      track.timeToSampleTable.push({
+        sampleCount: 1,
+        sampleDelta: intoTimescale(durationInSeconds, track.timescale)
+      });
+    }
   };
   _validateTimestamp = new WeakSet();
   validateTimestamp_fn = function(timestamp, track) {
@@ -1027,7 +1033,6 @@ var Mp4Muxer = (() => {
         `The first chunk for your media track must have a timestamp of 0 (received ${timestamp}). Non-zero first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of the document, which is probably what you want.
 
 If you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.
-If you want to allow non-zero first timestamps, set firstTimestampBehavior: 'permissive'.
 `
       );
     } else if (__privateGet(this, _options).firstTimestampBehavior === "offset") {
@@ -1048,6 +1053,13 @@ If you want to allow non-zero first timestamps, set firstTimestampBehavior: 'per
     for (let bytes2 of track.currentChunk.sampleData)
       __privateGet(this, _writer).write(bytes2);
     track.currentChunk.sampleData = null;
+    if (track.compactlyCodedChunkTable.length === 0 || last(track.compactlyCodedChunkTable).samplesPerChunk !== track.currentChunk.sampleCount) {
+      track.compactlyCodedChunkTable.push({
+        firstChunk: track.writtenChunks.length + 1,
+        // 1-indexed
+        samplesPerChunk: track.currentChunk.sampleCount
+      });
+    }
     track.writtenChunks.push(track.currentChunk);
     __privateMethod(this, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn).call(this);
   };

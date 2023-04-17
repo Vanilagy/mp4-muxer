@@ -30,7 +30,7 @@ let videoEncoder = new VideoEncoder({
     error: e => console.error(e)
 });
 videoEncoder.configure({
-    codec: 'avc1.640028',
+    codec: 'avc1.42001f',
     width: 1280,
     height: 720,
     bitrate: 1e6
@@ -94,7 +94,7 @@ interface MuxerOptions {
         sampleRate: number
     },
 
-    firstTimestampBehavior?: 'strict' | 'offset' | 'permissive'
+    firstTimestampBehavior?: 'strict' | 'offset'
 }
 ```
 Codecs currently supported by this library are AVC/H.264 and HEVC/H.265 for video, and AAC for audio.
@@ -176,7 +176,6 @@ the document or the computer's clock, which is typically not what we want. Handl
 set explicitly:
 - Use `'offset'` to offset the timestamp of each video track by that track's first chunk's timestamp. This way, it
 starts at 0.
-- Use `'permissive'` to allow the first timestamp to be non-zero.
 
 ### Muxing media chunks
 Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxer using the following methods:

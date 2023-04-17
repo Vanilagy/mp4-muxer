@@ -1,5 +1,5 @@
-import { Box } from "./box";
-import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget } from "./target";
+import { Box } from './box';
+import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget } from './target';
 
 export abstract class Writer {
 	pos = 0;

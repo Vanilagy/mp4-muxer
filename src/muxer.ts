@@ -1,19 +1,20 @@
-import { Box, ftyp, mdat, moov } from "./box";
-import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget, Target } from "./target";
+import { Box, ftyp, mdat, moov } from './box';
+import { intoTimescale, last } from './misc';
+import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget, Target } from './target';
 import {
 	Writer,
 	ArrayBufferTargetWriter,
 	StreamTargetWriter,
 	ChunkedStreamTargetWriter,
 	FileSystemWritableFileStreamTargetWriter
-} from "./writer";
+} from './writer';
 
 export const GLOBAL_TIMESCALE = 1000;
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
 const MAX_CHUNK_DURATION = 0.5; // In seconds
 const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc'] as const;
 const SUPPORTED_AUDIO_CODECS = ['aac'] as const;
-const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'permissive'] as const;
+const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset'] as const;
 
 interface Mp4MuxerOptions<T extends Target> {
 	target: T,
@@ -46,10 +47,19 @@ export interface Track {
 	timescale: number,
 	codecPrivate: Uint8Array,
 	samples: Sample[],
+
+	firstTimestamp: number,
+	lastTimestamp: number,
+
+	timeToSampleTable: { sampleCount: number, sampleDelta: number }[];
+	lastTimescaleUnits: number,
+
 	writtenChunks: Chunk[],
 	currentChunk: Chunk,
-	firstTimestamp: number,
-	lastTimestamp: number
+	compactlyCodedChunkTable: {
+		firstChunk: number,
+		samplesPerChunk: number
+	}[]
 }
 
 export interface Sample {
@@ -144,7 +154,10 @@ export class Muxer<T extends Target> {
 				writtenChunks: [],
 				currentChunk: null,
 				firstTimestamp: undefined,
-				lastTimestamp: -1
+				lastTimestamp: -1,
+				timeToSampleTable: [],
+				lastTimescaleUnits: null,
+				compactlyCodedChunkTable: []
 			};
 		}
 
@@ -170,7 +183,10 @@ export class Muxer<T extends Target> {
 				writtenChunks: [],
 				currentChunk: null,
 				firstTimestamp: undefined,
-				lastTimestamp: -1
+				lastTimestamp: -1,
+				timeToSampleTable: [],
+				lastTimescaleUnits: null,
+				compactlyCodedChunkTable: []
 			};
 		}
 	}
@@ -217,7 +233,7 @@ export class Muxer<T extends Target> {
 		meta?: EncodedVideoChunkMetadata
 	) {
 		this.#ensureNotFinalized();
-		if (!this.#options.video) throw new Error("No video track declared.");
+		if (!this.#options.video) throw new Error('No video track declared.');
 
 		this.#addSampleToTrack(this.#videoTrack, data, type, timestamp, duration, meta);
 	}
@@ -237,7 +253,7 @@ export class Muxer<T extends Target> {
 		meta?: EncodedAudioChunkMetadata
 	) {
 		this.#ensureNotFinalized();
-		if (!this.#options.audio) throw new Error("No audio track declared.");
+		if (!this.#options.audio) throw new Error('No audio track declared.');
 
 		this.#addSampleToTrack(this.#audioTrack, data, type, timestamp, duration, meta);
 	}
@@ -279,6 +295,36 @@ export class Muxer<T extends Target> {
 			size: data.byteLength,
 			type: type
 		});
+
+		// Fill the time-to-sample table
+		if (track.lastTimescaleUnits !== null) {
+			let timescaleUnits = intoTimescale(timestampInSeconds, track.timescale, false);
+			let delta = Math.round(timescaleUnits - track.lastTimescaleUnits);
+			track.lastTimescaleUnits += delta;
+
+			let lastTableEntry = last(track.timeToSampleTable);
+			if (lastTableEntry.sampleCount === 1) {
+				// If we hit this case, we're the second sample
+				lastTableEntry.sampleDelta = delta;
+				lastTableEntry.sampleCount++;
+			} else if (lastTableEntry.sampleDelta === delta) {
+				// Simply, simply increment the count
+				lastTableEntry.sampleCount++;
+			} else {
+				// The delta has changed, so subtract one from the previous run and create a new run with the new delta
+				lastTableEntry.sampleCount--;
+				track.timeToSampleTable.push({
+					sampleCount: 2,
+					sampleDelta: delta
+				});
+			}
+		} else {
+			track.lastTimescaleUnits = 0;
+			track.timeToSampleTable.push({
+				sampleCount: 1,
+				sampleDelta: intoTimescale(durationInSeconds, track.timescale)
+			});
+		}
 	}
 
 	#validateTimestamp(timestamp: number, track: Track) {
@@ -289,8 +335,7 @@ export class Muxer<T extends Target> {
 				`first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack ` +
 				`into the encoder. Their timestamps are typically relative to the age of the document, which is ` +
 				`probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one ` +
-				`is zero, set firstTimestampBehavior: 'offset' in the options.\nIf you want to allow non-zero first ` +
-				`timestamps, set firstTimestampBehavior: 'permissive'.\n`
+				`is zero, set firstTimestampBehavior: 'offset' in the options.\n`
 			);
 		} else if (this.#options.firstTimestampBehavior === 'offset') {
 			timestamp -= track.firstTimestamp;
@@ -313,6 +358,16 @@ export class Muxer<T extends Target> {
 		for (let bytes of track.currentChunk.sampleData) this.#writer.write(bytes);
 		track.currentChunk.sampleData = null;
 
+		if (
+			track.compactlyCodedChunkTable.length === 0
+			|| last(track.compactlyCodedChunkTable).samplesPerChunk !== track.currentChunk.sampleCount
+		) {
+			track.compactlyCodedChunkTable.push({
+				firstChunk: track.writtenChunks.length + 1, // 1-indexed
+				samplesPerChunk: track.currentChunk.sampleCount
+			});
+		}
+
 		track.writtenChunks.push(track.currentChunk);
 
 		this.#maybeFlushStreamingTargetWriter();
@@ -326,7 +381,7 @@ export class Muxer<T extends Target> {
 
 	#ensureNotFinalized() {
 		if (this.#finalized) {
-			throw new Error("Cannot add new video or audio chunks after the file has been finalized.");
+			throw new Error('Cannot add new video or audio chunks after the file has been finalized.');
 		}
 	}
 

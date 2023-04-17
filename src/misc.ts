@@ -52,3 +52,8 @@ export const ascii = (text: string, nullTerminated = false) => {
 export const last = <T>(arr: T[]) => {
 	return arr && arr[arr.length - 1];
 };
+
+export const intoTimescale = (timeInSeconds: number, timescale: number, round = true) => {
+	let value = timeInSeconds * timescale;
+	return round ? Math.round(value) : value;
+};
