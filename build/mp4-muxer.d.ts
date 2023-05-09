@@ -68,14 +68,14 @@ declare class ArrayBufferTarget {
  * you want to stream the data, e.g. pipe it somewhere else.
  *
  * When using `chunked: true` in the options, data created by the muxer will first be accumulated and only written out
- * once it has reached sufficient size (~16 MB). This is useful for reducing the total amount of writes, at the cost of
- * latency.
+ * once it has reached sufficient size, using a default chunk size of 16 MiB. This is useful for reducing the total
+ * amount of writes, at the cost of latency.
  */
 declare class StreamTarget {
 	constructor(
 		onData: (data: Uint8Array, position: number) => void,
 		onDone?: () => void,
-		options?: { chunked?: true }
+		options?: { chunked?: true, chunkSize?: number }
 	);
 }
 

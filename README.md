@@ -9,7 +9,8 @@ high-quality, fast and tiny, and supports both video and audio.
 
 [Demo: Muxing into a file](https://vanilagy.github.io/mp4-muxer/demo/)
 
-> **Note:** If you're looking to create **WebM** files, check out [webm-muxer](https://github.com/Vanilagy/webm-muxer), the sister library to mp4-muxer.
+> **Note:** If you're looking to create **WebM** files, check out [webm-muxer](https://github.com/Vanilagy/webm-muxer),
+the sister library to mp4-muxer.
 
 ## Quick start
 The following is an example for a common usage of this library:
@@ -115,20 +116,24 @@ This option specifies where the data created by the muxer will be written. The o
     muxer.finalize();
     let { buffer } = muxer.target;
     ```
-- `StreamTarget`: This target defines callbacks that will get called whenever there is new data available  - this is useful if
-    you want to stream the data, e.g. pipe it somewhere else. The constructor has the following signature:
+- `StreamTarget`: This target defines callbacks that will get called whenever there is new data available  - this is
+    useful if you want to stream the data, e.g. pipe it somewhere else. The constructor has the following signature:
 
     ```ts
     constructor(
         onData: (data: Uint8Array, position: number) => void,
         onDone?: () => void,
-        options?: { chunked?: true }
+        options?: { chunked?: true, chunkSize?: number }
     );
     ```
 
-    The `position` parameter specifies the offset in bytes at which the data should be written. When using
-    `chunked: true` in the options, data created by the muxer will first be accumulated and only written out once it has
-    reached sufficient size (~16 MB). This is useful for reducing the total amount of writes, at the cost of latency.
+    The `position` argument specifies the offset in bytes at which the data has to be written. Since the data written by
+    the muxer is not entirely sequential, **make sure to respect this argument**.
+    
+    When using `chunked: true` in the options, data created by the muxer will first be accumulated and only written out
+    once it has reached sufficient size. This is useful for reducing the total amount of writes, at the cost of
+    latency. It using a default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the
+    desired byte length.
     
     Note that this target is **not** intended for *live-streaming*, i.e. playback before muxing has finished.
 
@@ -251,7 +256,8 @@ MP4 files are based on the ISO Base Media Format, which structures its files as 
 standards used to implement this library were
 [ISO/IEC 14496-1](http://netmedia.zju.edu.cn/multimedia2013/mpeg-4/ISO%20IEC%2014496-1%20MPEG-4%20System%20Standard.pdf),
 [ISO/IEC 14496-12](https://web.archive.org/web/20180219054429/http://l.web.umkc.edu/lizhu/teaching/2016sp.video-communication/ref/mp4.pdf)
-and [ISO/IEC 14496-14](https://github.com/OpenAnsible/rust-mp4/raw/master/docs/ISO_IEC_14496-14_2003-11-15.pdf).
+and
+[ISO/IEC 14496-14](https://github.com/OpenAnsible/rust-mp4/raw/master/docs/ISO_IEC_14496-14_2003-11-15.pdf).
 Additionally, the
 [QuickTime MP4 Specification](https://developer.apple.com/library/archive/documentation/QuickTime/QTFF/QTFFPreface/qtffPreface.html)
 was a very useful resource.

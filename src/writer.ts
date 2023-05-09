@@ -59,9 +59,9 @@ export abstract class Writer {
 
 			let endPos = this.pos;
 			let size = box.size ?? endPos - startPos;
-			this.pos = startPos;
+			this.seek(startPos);
 			this.writeBoxHeader(box, size);
-			this.pos = endPos;
+			this.seek(endPos);
 		}
 	}
 
@@ -73,9 +73,9 @@ export abstract class Writer {
 
 	patchBox(box: Box) {
 		let endPos = this.pos;
-		this.pos = this.offsets.get(box);
+		this.seek(this.offsets.get(box));
 		this.writeBox(box);
-		this.pos = endPos;
+		this.seek(endPos);
 	}
 }
 
@@ -198,7 +198,7 @@ export class StreamTargetWriter extends Writer {
 	}
 }
 
-const CHUNK_SIZE = 2**24;
+const DEFAULT_CHUNK_SIZE = 2**24;
 const MAX_CHUNKS_AT_ONCE = 2;
 
 interface Chunk {
@@ -219,6 +219,7 @@ interface ChunkSection {
  */
 export class ChunkedStreamTargetWriter extends Writer {
 	#target: StreamTarget;
+	#chunkSize: number;
 	/**
 	 * The data is divided up into fixed-size chunks, whose contents are first filled in RAM and then flushed out.
 	 * A chunk is flushed if all of its contents have been written.
@@ -229,6 +230,11 @@ export class ChunkedStreamTargetWriter extends Writer {
 		super();
 
 		this.#target = target;
+		this.#chunkSize = target.options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
+
+		if (!Number.isInteger(this.#chunkSize) || this.#chunkSize < 2**10) {
+			throw new Error('Invalid StreamTarget options: chunkSize must be an integer not smaller than 1024.');
+		}
 	}
 
 	write(data: Uint8Array) {
@@ -240,13 +246,13 @@ export class ChunkedStreamTargetWriter extends Writer {
 
 	#writeDataIntoChunks(data: Uint8Array, position: number) {
 		// First, find the chunk to write the data into, or create one if none exists
-		let chunkIndex = this.#chunks.findIndex(x => x.start <= position && position < x.start + CHUNK_SIZE);
+		let chunkIndex = this.#chunks.findIndex(x => x.start <= position && position < x.start + this.#chunkSize);
 		if (chunkIndex === -1) chunkIndex = this.#createChunk(position);
 		let chunk = this.#chunks[chunkIndex];
 
 		// Figure out how much to write to the chunk, and then write to the chunk
 		let relativePosition = position - chunk.start;
-		let toWrite = data.subarray(0, Math.min(CHUNK_SIZE - relativePosition, data.byteLength));
+		let toWrite = data.subarray(0, Math.min(this.#chunkSize - relativePosition, data.byteLength));
 		chunk.data.set(toWrite, relativePosition);
 
 		// Create a section describing the region of data that was just written to
@@ -257,7 +263,7 @@ export class ChunkedStreamTargetWriter extends Writer {
 		this.#insertSectionIntoChunk(chunk, section);
 
 		// Queue chunk for flushing to target if it has been fully written to
-		if (chunk.written[0].start === 0 && chunk.written[0].end === CHUNK_SIZE) {
+		if (chunk.written[0].start === 0 && chunk.written[0].end === this.#chunkSize) {
 			chunk.shouldFlush = true;
 		}
 
@@ -305,10 +311,10 @@ export class ChunkedStreamTargetWriter extends Writer {
 	}
 
 	#createChunk(includesPosition: number) {
-		let start = Math.floor(includesPosition / CHUNK_SIZE) * CHUNK_SIZE;
+		let start = Math.floor(includesPosition / this.#chunkSize) * this.#chunkSize;
 		let chunk: Chunk = {
 			start,
-			data: new Uint8Array(CHUNK_SIZE),
+			data: new Uint8Array(this.#chunkSize),
 			written: [],
 			shouldFlush: false
 		};
