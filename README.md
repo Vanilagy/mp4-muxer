@@ -148,10 +148,19 @@ This option specifies where the data created by the muxer will be written. The o
         // ...
     });
     ```
-- `FileSystemWritableFileStreamTarget`: This is essentially a wrapper around `StreamTarget` with the intention of
-    simplifying the use of this library with the File System Access API. Writing the file directly to disk as it's being
-    created comes with many benefits, such as creating files way larger than the available RAM.
+- `FileSystemWritableFileStreamTarget`: This is essentially a wrapper around a chunked `StreamTarget` with the intention
+    of simplifying the use of this library with the File System Access API. Writing the file directly to disk as it's
+    being created comes with many benefits, such as creating files way larger than the available RAM.
 
+    You can optionally override the default `chunkSize` of 16 MiB.
+    ```ts
+    constructor(
+        stream: FileSystemWritableFileStream,
+        options?: { chunkSize?: number }
+    );
+    ```
+
+    Usage example:
     ```js
     import { Muxer, FileSystemWritableFileStreamTarget } from 'mp4-muxer';
     

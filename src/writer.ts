@@ -356,7 +356,9 @@ export class FileSystemWritableFileStreamTargetWriter extends ChunkedStreamTarge
 				type: 'write',
 				data,
 				position
-			})
+			}),
+			undefined,
+			{ chunkSize: target.options?.chunkSize }
 		));
 	}
 }

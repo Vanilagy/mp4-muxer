@@ -80,12 +80,15 @@ declare class StreamTarget {
 }
 
 /**
- * This is essentially a wrapper around `StreamTarget` with the intention of simplifying the use of this library with
- * the File System Access API. Writing the file directly to disk as it's being created comes with many benefits, such as
- * creating files way larger than the available RAM.
+ * This is essentially a wrapper around a chunked `StreamTarget` with the intention of simplifying the use of this
+ * library with the File System Access API. Writing the file directly to disk as it's being created comes with many
+ * benefits, such as creating files way larger than the available RAM.
  */
 declare class FileSystemWritableFileStreamTarget {
-	constructor(stream: FileSystemWritableFileStream);
+	constructor(
+		stream: FileSystemWritableFileStream,
+		options?: { chunkSize?: number }
+	);
 }
 
 /**

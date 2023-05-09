@@ -13,5 +13,8 @@ export class StreamTarget {
 }
 
 export class FileSystemWritableFileStreamTarget {
-	constructor(public stream: FileSystemWritableFileStream) {}
+	constructor(
+		public stream: FileSystemWritableFileStream,
+		public options?: { chunkSize?: number }
+	) {}
 }

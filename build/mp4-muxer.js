@@ -500,8 +500,9 @@ var Mp4Muxer = (() => {
     }
   };
   var FileSystemWritableFileStreamTarget = class {
-    constructor(stream) {
+    constructor(stream, options) {
       this.stream = stream;
+      this.options = options;
     }
   };
 
@@ -786,12 +787,15 @@ var Mp4Muxer = (() => {
   };
   var FileSystemWritableFileStreamTargetWriter = class extends ChunkedStreamTargetWriter {
     constructor(target) {
+      var _a;
       super(new StreamTarget(
         (data, position) => target.stream.write({
           type: "write",
           data,
           position
-        })
+        }),
+        void 0,
+        { chunkSize: (_a = target.options) == null ? void 0 : _a.chunkSize }
       ));
     }
   };
