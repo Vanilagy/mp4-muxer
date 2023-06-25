@@ -271,6 +271,7 @@ export class Muxer<T extends Target> {
 
 		if (track.firstTimestamp === undefined) track.firstTimestamp = timestampInSeconds;
 		timestampInSeconds = this.#validateTimestamp(timestampInSeconds, track);
+		track.lastTimestamp = timestampInSeconds;
 
 		if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
 			if (track.currentChunk) this.#writeCurrentChunk(track); // Chunk is long enough, write it out

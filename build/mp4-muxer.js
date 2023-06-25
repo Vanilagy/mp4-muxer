@@ -992,6 +992,7 @@ var Mp4Muxer = (() => {
     if (track.firstTimestamp === void 0)
       track.firstTimestamp = timestampInSeconds;
     timestampInSeconds = __privateMethod(this, _validateTimestamp, validateTimestamp_fn).call(this, timestampInSeconds, track);
+    track.lastTimestamp = timestampInSeconds;
     if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
       if (track.currentChunk)
         __privateMethod(this, _writeCurrentChunk, writeCurrentChunk_fn).call(this, track);
