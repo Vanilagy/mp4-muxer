@@ -218,7 +218,7 @@ export class Muxer<T extends Target> {
 		return configBytes;
 	}
 
-	addVideoChunk(sample: EncodedVideoChunk, meta: EncodedVideoChunkMetadata, timestamp?: number) {
+	addVideoChunk(sample: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata, timestamp?: number) {
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
@@ -238,7 +238,7 @@ export class Muxer<T extends Target> {
 		this.#addSampleToTrack(this.#videoTrack, data, type, timestamp, duration, meta);
 	}
 
-	addAudioChunk(sample: EncodedAudioChunk, meta: EncodedAudioChunkMetadata, timestamp?: number) {
+	addAudioChunk(sample: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata, timestamp?: number) {
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
