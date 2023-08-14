@@ -111,7 +111,7 @@ declare class Muxer<T extends Target> {
 	 * @param timestamp Optionally, the timestamp to use for the video chunk. When not provided, it will use the one
 	 * specified in `chunk`.
 	 */
-	addVideoChunk(chunk: EncodedVideoChunk, meta: EncodedVideoChunkMetadata, timestamp?: number): void;
+	addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata, timestamp?: number): void;
 	/**
 	 * Adds a new, encoded audio chunk to the MP4 file.
 	 * @param chunk The encoded audio chunk. Can be obtained through an `AudioEncoder`.
@@ -119,7 +119,7 @@ declare class Muxer<T extends Target> {
 	 * @param timestamp Optionally, the timestamp to use for the audio chunk. When not provided, it will use the one
 	 * specified in `chunk`.
 	 */
-	addAudioChunk(chunk: EncodedAudioChunk, meta: EncodedAudioChunkMetadata, timestamp?: number): void;
+	addAudioChunk(chunk: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata, timestamp?: number): void;
 
 	/**
 	 * Adds a raw video chunk to the MP4 file. This method should be used when the encoded video is not obtained

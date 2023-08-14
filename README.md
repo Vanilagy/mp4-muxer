@@ -196,13 +196,13 @@ Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxe
 ```ts
 addVideoChunk(
     chunk: EncodedVideoChunk,
-    meta: EncodedVideoChunkMetadata,
+    meta?: EncodedVideoChunkMetadata,
     timestamp?: number
 ): void;
 
 addAudioChunk(
     chunk: EncodedAudioChunk,
-    meta: EncodedAudioChunkMetadata,
+    meta?: EncodedAudioChunkMetadata,
     timestamp?: number
 ): void;
 ```
