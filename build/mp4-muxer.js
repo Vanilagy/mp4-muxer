@@ -319,16 +319,14 @@ var Mp4Muxer = (() => {
     // Entry count
   ], [
     track.info.type === "video" ? videoSampleDescription(
-      track.info.codec === "avc" ? "avc1" : "hvc1",
-      track,
-      track.info.codec === "avc" ? avcC(track) : hvcC(track)
+      VIDEO_CODEC_TO_BOX_NAME[track.info.codec],
+      track
     ) : soundSampleDescription(
-      "mp4a",
-      track,
-      esds(track)
+      AUDIO_CODEC_TO_BOX_NAME[track.info.codec],
+      track
     )
   ]);
-  var videoSampleDescription = (compressionType, track, child) => box(compressionType, [
+  var videoSampleDescription = (compressionType, track) => box(compressionType, [
     Array(6).fill(0),
     // Reserved
     u16(1),
@@ -358,11 +356,13 @@ var Mp4Muxer = (() => {
     i16(65535)
     // Pre-defined
   ], [
-    child
+    VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
   ]);
   var avcC = (track) => track.codecPrivate && box("avcC", [...track.codecPrivate]);
   var hvcC = (track) => track.codecPrivate && box("hvcC", [...track.codecPrivate]);
-  var soundSampleDescription = (compressionType, track, child) => box(compressionType, [
+  var vpcC = (track) => track.codecPrivate && box("vpcC", [...track.codecPrivate]);
+  var av1C = (track) => track.codecPrivate && box("av1C", [...track.codecPrivate]);
+  var soundSampleDescription = (compressionType, track) => box(compressionType, [
     Array(6).fill(0),
     // Reserved
     u16(1),
@@ -384,7 +384,7 @@ var Mp4Muxer = (() => {
     fixed32(track.info.sampleRate)
     // Sample rate
   ], [
-    child
+    AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
   ]);
   var esds = (track) => fullBox("esds", 0, 0, [
     // https://stackoverflow.com/a/54803118
@@ -421,6 +421,20 @@ var Mp4Muxer = (() => {
     // length
     u8(2)
     // data
+  ]);
+  var dOps = (track) => box("dOps", [
+    u8(0),
+    // Version
+    u8(track.info.numberOfChannels),
+    // OutputChannelCount
+    u16(3840),
+    // PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
+    u32(track.info.sampleRate),
+    // InputSampleRate
+    fixed16(0),
+    // OutputGain
+    u8(0)
+    // ChannelMappingFamily
   ]);
   var stts = (track) => {
     return fullBox("stts", 0, 0, [
@@ -484,6 +498,26 @@ var Mp4Muxer = (() => {
       track.writtenChunks.map((x) => u32(x.offset))
       // Chunk offset table
     ]);
+  };
+  var VIDEO_CODEC_TO_BOX_NAME = {
+    "avc": "avc1",
+    "hevc": "hvc1",
+    "vp9": "vp09",
+    "av1": "av01"
+  };
+  var VIDEO_CODEC_TO_CONFIGURATION_BOX = {
+    "avc": avcC,
+    "hevc": hvcC,
+    "vp9": vpcC,
+    "av1": av1C
+  };
+  var AUDIO_CODEC_TO_BOX_NAME = {
+    "aac": "mp4a",
+    "opus": "opus"
+  };
+  var AUDIO_CODEC_TO_CONFIGURATION_BOX = {
+    "aac": esds,
+    "opus": dOps
   };
 
   // src/target.ts
@@ -802,10 +836,10 @@ var Mp4Muxer = (() => {
 
   // src/muxer.ts
   var GLOBAL_TIMESCALE = 1e3;
+  var SUPPORTED_VIDEO_CODECS2 = ["avc", "hevc", "vp9", "av1"];
+  var SUPPORTED_AUDIO_CODECS2 = ["aac", "opus"];
   var TIMESTAMP_OFFSET = 2082844800;
   var MAX_CHUNK_DURATION = 0.5;
-  var SUPPORTED_VIDEO_CODECS = ["avc", "hevc"];
-  var SUPPORTED_AUDIO_CODECS = ["aac"];
   var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset"];
   var _options, _writer, _mdat, _videoTrack, _audioTrack, _creationTime, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _prepareTracks, prepareTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _writeCurrentChunk, writeCurrentChunk_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
   var Muxer = class {
@@ -893,10 +927,10 @@ var Mp4Muxer = (() => {
   _finalized = new WeakMap();
   _validateOptions = new WeakSet();
   validateOptions_fn = function(options) {
-    if (options.video && !SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
+    if (options.video && !SUPPORTED_VIDEO_CODECS2.includes(options.video.codec)) {
       throw new Error(`Unsupported video codec: ${options.video.codec}`);
     }
-    if (options.audio && !SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
+    if (options.audio && !SUPPORTED_AUDIO_CODECS2.includes(options.audio.codec)) {
       throw new Error(`Unsupported audio codec: ${options.audio.codec}`);
     }
     if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {

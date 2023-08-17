@@ -14,7 +14,7 @@ declare interface MuxerOptions<T extends Target> {
 		/**
 		 * The codec of the encoded video chunks.
 		 */
-		codec: 'avc' | 'hevc',
+		codec: 'avc' | 'hevc' | 'vp9' | 'av1',
 		/**
 		 * The width of the video, in pixels.
 		 */
@@ -32,7 +32,7 @@ declare interface MuxerOptions<T extends Target> {
 		/**
 		 * The codec of the encoded audio chunks.
 		 */
-		codec: 'aac',
+		codec: 'aac' | 'opus',
 		/**
 		 * The number of audio channels in the audio track.
 		 */

@@ -1,4 +1,11 @@
-import { GLOBAL_TIMESCALE, Track } from './muxer';
+import {
+	AudioTrack,
+	GLOBAL_TIMESCALE,
+	SUPPORTED_AUDIO_CODECS,
+	SUPPORTED_VIDEO_CODECS,
+	Track,
+	VideoTrack
+} from './muxer';
 import { ascii, i16, intoTimescale, last, u16, u64, u8, u32, fixed32, fixed16, u24 } from './misc';
 
 const IDENTITY_MATRIX = [
@@ -235,22 +242,19 @@ export const stsd = (track: Track) => fullBox('stsd', 0, 0, [
 ], [
 	track.info.type === 'video'
 		? videoSampleDescription(
-			track.info.codec === 'avc' ? 'avc1' : 'hvc1',
-			track as Track & { info: { type: 'video' } },
-			track.info.codec === 'avc' ? avcC(track) : hvcC(track)
+			VIDEO_CODEC_TO_BOX_NAME[track.info.codec],
+			track as VideoTrack
 		)
 		: soundSampleDescription(
-			'mp4a',
-			track as Track & { info: { type: 'audio' } },
-			esds(track)
+			AUDIO_CODEC_TO_BOX_NAME[track.info.codec],
+			track as AudioTrack
 		)
 ]);
 
 /** Video Sample Description Box: Contains information that defines how to interpret video media data. */
 export const videoSampleDescription = (
 	compressionType: string,
-	track: Track & { info: { type: 'video' } },
-	child: Box
+	track: VideoTrack
 ) => box(compressionType, [
 	Array(6).fill(0), // Reserved
 	u16(1), // Data reference index
@@ -267,7 +271,7 @@ export const videoSampleDescription = (
 	u16(0x0018), // Depth
 	i16(0xffff) // Pre-defined
 ], [
-	child
+	VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
 ]);
 
 /** AVC Configuration Box: Provides additional information to the decoder. */
@@ -276,11 +280,16 @@ export const avcC = (track: Track) => track.codecPrivate && box('avcC', [...trac
 /** HEVC Configuration Box: Provides additional information to the decoder. */
 export const hvcC = (track: Track) => track.codecPrivate && box('hvcC', [...track.codecPrivate]);
 
+/** VP9 Configuration Box: Provides additional information to the decoder. */
+export const vpcC = (track: Track) => track.codecPrivate && box('vpcC', [...track.codecPrivate]);
+
+/** AV1 Configuration Box: Provides additional information to the decoder. */
+export const av1C = (track: Track) => track.codecPrivate && box('av1C', [...track.codecPrivate]);
+
 /** Sound Sample Description Box: Contains information that defines how to interpret sound media data. */
 export const soundSampleDescription = (
 	compressionType: string,
-	track: Track & { info: { type: 'audio' } },
-	child: Box
+	track: AudioTrack
 ) => box(compressionType, [
 	Array(6).fill(0), // Reserved
 	u16(1), // Data reference index
@@ -293,7 +302,7 @@ export const soundSampleDescription = (
 	u16(0), // Packet size
 	fixed32(track.info.sampleRate) // Sample rate
 ], [
-	child
+	AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
 ]);
 
 /** MPEG-4 Elementary Stream Descriptor Box. */
@@ -316,6 +325,16 @@ export const esds = (track: Track) => fullBox('esds', 0, 0, [
 	u32(0x06808080), // TAG(6)
 	u8(0x01), // length
 	u8(0x02) // data
+]);
+
+/** Opus Specific Box. */
+export const dOps = (track: AudioTrack) => box('dOps', [
+	u8(0), // Version
+	u8(track.info.numberOfChannels), // OutputChannelCount
+	u16(3840), // PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
+	u32(track.info.sampleRate), // InputSampleRate
+	fixed16(0), // OutputGain
+	u8(0) // ChannelMappingFamily
 ]);
 
 /**
@@ -382,4 +401,28 @@ export const stco = (track: Track) => {
 		u32(track.writtenChunks.length), // Number of entries
 		track.writtenChunks.map(x => u32(x.offset)) // Chunk offset table
 	]);
+};
+
+const VIDEO_CODEC_TO_BOX_NAME: Record<typeof SUPPORTED_VIDEO_CODECS[number], string> = {
+	'avc': 'avc1',
+	'hevc': 'hvc1',
+	'vp9': 'vp09',
+	'av1': 'av01'
+};
+
+const VIDEO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_VIDEO_CODECS[number], (track: VideoTrack) => Box> = {
+	'avc': avcC,
+	'hevc': hvcC,
+	'vp9': vpcC,
+	'av1': av1C
+};
+
+const AUDIO_CODEC_TO_BOX_NAME: Record<typeof SUPPORTED_AUDIO_CODECS[number], string> = {
+	'aac': 'mp4a',
+	'opus': 'opus'
+};
+
+const AUDIO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_AUDIO_CODECS[number], (track: AudioTrack) => Box> = {
+	'aac': esds,
+	'opus': dOps
 };

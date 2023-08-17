@@ -84,13 +84,13 @@ interface MuxerOptions {
         | FileSystemWritableFileStreamTarget,
 
     video?: {
-        codec: 'avc' | 'hevc',
+        codec: 'avc' | 'hevc' | 'vp9' | 'av1',
         width: number,
         height: number
     },
 
     audio?: {
-        codec: 'aac',
+        codec: 'aac' | 'opus',
         numberOfChannels: number,
         sampleRate: number
     },
@@ -98,7 +98,7 @@ interface MuxerOptions {
     firstTimestampBehavior?: 'strict' | 'offset'
 }
 ```
-Codecs currently supported by this library are AVC/H.264 and HEVC/H.265 for video, and AAC for audio.
+Codecs currently supported by this library are AVC/H.264, HEVC/H.265, VP1 and AV1 for video, and AAC and Opus for audio.
 #### `target`
 This option specifies where the data created by the muxer will be written. The options are:
 - `ArrayBufferTarget`: The file data will be written into a single large buffer, which is then stored in the target.

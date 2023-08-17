@@ -10,10 +10,10 @@ import {
 } from './writer';
 
 export const GLOBAL_TIMESCALE = 1000;
+export const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc', 'vp9', 'av1'] as const;
+export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus'] as const;
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
 const MAX_CHUNK_DURATION = 0.5; // In seconds
-const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc'] as const;
-const SUPPORTED_AUDIO_CODECS = ['aac'] as const;
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset'] as const;
 
 interface Mp4MuxerOptions<T extends Target> {
@@ -61,6 +61,9 @@ export interface Track {
 		samplesPerChunk: number
 	}[]
 }
+
+export type VideoTrack = Track & { info: { type: 'video' } };
+export type AudioTrack = Track & { info: { type: 'audio' } };
 
 export interface Sample {
 	timestamp: number,
