@@ -98,7 +98,7 @@ interface MuxerOptions {
     firstTimestampBehavior?: 'strict' | 'offset'
 }
 ```
-Codecs currently supported by this library are AVC/H.264, HEVC/H.265, VP1 and AV1 for video, and AAC and Opus for audio.
+Codecs currently supported by this library are AVC/H.264, HEVC/H.265, VP9 and AV1 for video, and AAC and Opus for audio.
 #### `target`
 This option specifies where the data created by the muxer will be written. The options are:
 - `ArrayBufferTarget`: The file data will be written into a single large buffer, which is then stored in the target.
