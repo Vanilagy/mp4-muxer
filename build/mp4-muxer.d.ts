@@ -162,14 +162,9 @@ declare class Muxer<T extends Target> {
 	finalize(): void;
 }
 
-declare namespace Mp4Muxer {
-	export { Muxer, ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget };
-}
-
 declare global {
 	let Mp4Muxer: typeof Mp4Muxer;
 }
 
 export { Muxer, ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget };
 export as namespace Mp4Muxer;
-export default Mp4Muxer;

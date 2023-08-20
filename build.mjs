@@ -1,34 +1,46 @@
 import * as esbuild from 'esbuild';
 
-const config = {
+const baseConfig = {
 	entryPoints: ['src/index.ts'],
 	bundle: true,
+	logLevel: 'info'
+};
+
+const umdConfig = {
+	...baseConfig,
 	format: 'iife',
-	logLevel: 'info',
 
 	// The following are hacks to basically make this an UMD module. No native support for that in esbuild as of today
 	globalName: 'Mp4Muxer',
 
-	// Object.assign(module.exports, Mp4Muxer) would make us lose named exports in CJS-to-ESM interop
 	footer: {
 		js:
-`if (typeof module === "object" && typeof module.exports === "object") {
-	module.exports.Muxer = Mp4Muxer.Muxer;
-	module.exports.ArrayBufferTarget = Mp4Muxer.ArrayBufferTarget;
-	module.exports.StreamTarget = Mp4Muxer.StreamTarget;
-	module.exports.FileSystemWritableFileStreamTarget = Mp4Muxer.FileSystemWritableFileStreamTarget;
-}`
+`if (typeof module === "object" && typeof module.exports === "object") Object.assign(module.exports, Mp4Muxer)`
 	}
 };
 
-let ctx = await esbuild.context({
-	...config,
+const esmConfig = {
+	...baseConfig,
+	format: 'esm'
+};
+
+let ctxUmd = await esbuild.context({
+	...umdConfig,
 	outfile: 'build/mp4-muxer.js'
 });
-let ctxMinified = await esbuild.context({
-	...config,
+let ctxEsm = await esbuild.context({
+	...esmConfig,
+	outfile: 'build/mp4-muxer.mjs'
+});
+let ctxUmdMinified = await esbuild.context({
+	...umdConfig,
 	outfile: 'build/mp4-muxer.min.js',
 	minify: true
 });
+let ctxEsmMinified = await esbuild.context({
+	...esmConfig,
+	outfile: 'build/mp4-muxer.min.mjs',
+	minify: true
+});
 
-await Promise.all([ctx.watch(), ctxMinified.watch()]);
+await Promise.all([ctxUmd.watch(), ctxEsm.watch(), ctxUmdMinified.watch(), ctxEsmMinified.watch()]);

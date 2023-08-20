@@ -16,7 +16,7 @@ module.exports = {
 	'plugins': [
 		'@typescript-eslint'
 	],
-	'ignorePatterns': ['build/*.js', 'build.mjs'],
+	'ignorePatterns': ['build/*.js', 'build/*.mjs', 'build.mjs'],
 	'rules': {
 		'prefer-const': ['off'],
 		'@typescript-eslint/no-explicit-any': ['off'],

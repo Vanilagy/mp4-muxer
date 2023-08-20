@@ -1123,9 +1123,4 @@ If you want to offset all timestamps of a track such that the first one is zero,
   };
   return __toCommonJS(src_exports);
 })();
-if (typeof module === "object" && typeof module.exports === "object") {
-	module.exports.Muxer = Mp4Muxer.Muxer;
-	module.exports.ArrayBufferTarget = Mp4Muxer.ArrayBufferTarget;
-	module.exports.StreamTarget = Mp4Muxer.StreamTarget;
-	module.exports.FileSystemWritableFileStreamTarget = Mp4Muxer.FileSystemWritableFileStreamTarget;
-}
+if (typeof module === "object" && typeof module.exports === "object") Object.assign(module.exports, Mp4Muxer)
