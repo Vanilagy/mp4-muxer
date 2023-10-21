@@ -31,15 +31,18 @@ export const u64 = (value: number) => {
 	return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
 };
 
-export const fixed16 = (value: number) => {
-	view.setUint8(0, value);
-	view.setUint8(1, value << 8);
+export const fixed_8_8 = (value: number) => {
+	view.setInt16(0, 2**8 * value, false);
 	return [bytes[0], bytes[1]];
 };
 
-export const fixed32 = (value: number) => {
-	view.setUint16(0, value, false);
-	view.setUint16(2, value << 16, false);
+export const fixed_16_16 = (value: number) => {
+	view.setInt32(0, 2**16 * value, false);
+	return [bytes[0], bytes[1], bytes[2], bytes[3]];
+};
+
+export const fixed_2_30 = (value: number) => {
+	view.setInt32(0, 2**30 * value, false);
 	return [bytes[0], bytes[1], bytes[2], bytes[3]];
 };
 
@@ -56,4 +59,27 @@ export const last = <T>(arr: T[]) => {
 export const intoTimescale = (timeInSeconds: number, timescale: number, round = true) => {
 	let value = timeInSeconds * timescale;
 	return round ? Math.round(value) : value;
+};
+
+export const rotationMatrix = (rotationInDegrees: number) => {
+	let theta = rotationInDegrees * (Math.PI / 180);
+	let cosTheta = Math.cos(theta);
+	let sinTheta = Math.sin(theta);
+
+	// Matrices are post-multiplied in MP4, meaning this is the transpose of your typical rotation matrix
+	return [
+		cosTheta, sinTheta, 0,
+		-sinTheta, cosTheta, 0,
+		0, 0, 1
+	];
+};
+
+export const IDENTITY_MATRIX = rotationMatrix(0);
+
+export const matrixToBytes = (matrix: number[]) => {
+	return [
+		fixed_16_16(matrix[0]), fixed_16_16(matrix[1]), fixed_2_30(matrix[2]),
+		fixed_16_16(matrix[3]), fixed_16_16(matrix[4]), fixed_2_30(matrix[5]),
+		fixed_16_16(matrix[6]), fixed_16_16(matrix[7]), fixed_2_30(matrix[8])
+	];
 };

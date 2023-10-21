@@ -16,13 +16,17 @@ declare interface MuxerOptions<T extends Target> {
 		 */
 		codec: 'avc' | 'hevc' | 'vp9' | 'av1',
 		/**
-		 * The width of the video, in pixels.
+		 * The width of the video in pixels.
 		 */
 		width: number,
 		/**
-		 * The height of the video, in pixels.
+		 * The height of the video in pixels.
 		 */
-		height: number
+		height: number,
+		/**
+		 * The clockwise rotation of the video in degrees.
+		 */
+		rotation?: 0 | 90 | 180 | 270
 	},
 
 	/**
@@ -38,7 +42,7 @@ declare interface MuxerOptions<T extends Target> {
 		 */
 		numberOfChannels: number,
 		/**
-		 * The sample rate in the audio rate, in samples per second per channel.
+		 * The sample rate of the audio track in samples per second per channel.
 		 */
 		sampleRate: number
 	},

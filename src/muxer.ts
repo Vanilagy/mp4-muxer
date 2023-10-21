@@ -21,7 +21,8 @@ interface Mp4MuxerOptions<T extends Target> {
 	video?: {
 		codec: typeof SUPPORTED_VIDEO_CODECS[number],
 		width: number,
-		height: number
+		height: number,
+		rotation?: 0 | 90 | 180 | 270
 	},
 	audio?: {
 		codec: typeof SUPPORTED_AUDIO_CODECS[number],
@@ -37,7 +38,8 @@ export interface Track {
 		type: 'video',
 		codec: Mp4MuxerOptions<any>['video']['codec'],
 		width: number,
-		height: number
+		height: number,
+		rotation: 0 | 90 | 180 | 270
 	} | {
 		type: 'audio',
 		codec: Mp4MuxerOptions<any>['audio']['codec'],
@@ -118,8 +120,14 @@ export class Muxer<T extends Target> {
 	}
 
 	#validateOptions(options: Mp4MuxerOptions<T>) {
-		if (options.video && !SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
-			throw new Error(`Unsupported video codec: ${options.video.codec}`);
+		if (options.video) {
+			if (!SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
+				throw new Error(`Unsupported video codec: ${options.video.codec}`);
+			}
+
+			if (options.video.rotation !== undefined && ![0, 90, 180, 270].includes(options.video.rotation)) {
+				throw new Error(`Invalid video rotation: ${options.video.rotation}. Has to be 0, 90, 180 or 270.`);
+			}
 		}
 
 		if (options.audio && !SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
@@ -149,7 +157,8 @@ export class Muxer<T extends Target> {
 					type: 'video',
 					codec: this.#options.video.codec,
 					width: this.#options.video.width,
-					height: this.#options.video.height
+					height: this.#options.video.height,
+					rotation: this.#options.video.rotation ?? 0
 				},
 				timescale: 720, // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates
 				codecPrivate: new Uint8Array(0),

@@ -91,14 +91,16 @@ var Mp4Muxer = (() => {
     view.setUint32(4, value, false);
     return [bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
   };
-  var fixed16 = (value) => {
-    view.setUint8(0, value);
-    view.setUint8(1, value << 8);
+  var fixed_8_8 = (value) => {
+    view.setInt16(0, __pow(2, 8) * value, false);
     return [bytes[0], bytes[1]];
   };
-  var fixed32 = (value) => {
-    view.setUint16(0, value, false);
-    view.setUint16(2, value << 16, false);
+  var fixed_16_16 = (value) => {
+    view.setInt32(0, __pow(2, 16) * value, false);
+    return [bytes[0], bytes[1], bytes[2], bytes[3]];
+  };
+  var fixed_2_30 = (value) => {
+    view.setInt32(0, __pow(2, 30) * value, false);
     return [bytes[0], bytes[1], bytes[2], bytes[3]];
   };
   var ascii = (text, nullTerminated = false) => {
@@ -114,19 +116,38 @@ var Mp4Muxer = (() => {
     let value = timeInSeconds * timescale;
     return round ? Math.round(value) : value;
   };
+  var rotationMatrix = (rotationInDegrees) => {
+    let theta = rotationInDegrees * (Math.PI / 180);
+    let cosTheta = Math.cos(theta);
+    let sinTheta = Math.sin(theta);
+    return [
+      cosTheta,
+      sinTheta,
+      0,
+      -sinTheta,
+      cosTheta,
+      0,
+      0,
+      0,
+      1
+    ];
+  };
+  var IDENTITY_MATRIX = rotationMatrix(0);
+  var matrixToBytes = (matrix) => {
+    return [
+      fixed_16_16(matrix[0]),
+      fixed_16_16(matrix[1]),
+      fixed_2_30(matrix[2]),
+      fixed_16_16(matrix[3]),
+      fixed_16_16(matrix[4]),
+      fixed_2_30(matrix[5]),
+      fixed_16_16(matrix[6]),
+      fixed_16_16(matrix[7]),
+      fixed_2_30(matrix[8])
+    ];
+  };
 
   // src/box.ts
-  var IDENTITY_MATRIX = [
-    65536,
-    0,
-    0,
-    0,
-    65536,
-    0,
-    0,
-    0,
-    1073741824
-  ].map(u32);
   var box = (type, contents, children) => ({
     type,
     contents: contents && new Uint8Array(contents.flat(10)),
@@ -182,13 +203,13 @@ var Mp4Muxer = (() => {
       // Timescale
       u32(duration),
       // Duration
-      fixed32(1),
+      fixed_16_16(1),
       // Preferred rate
-      fixed16(1),
+      fixed_8_8(1),
       // Preferred volume
       Array(10).fill(0),
       // Reserved
-      IDENTITY_MATRIX,
+      matrixToBytes(IDENTITY_MATRIX),
       // Matrix
       Array(24).fill(0),
       // Pre-defined
@@ -223,15 +244,15 @@ var Mp4Muxer = (() => {
       // Layer
       u16(0),
       // Alternate group
-      fixed16(track.info.type === "audio" ? 1 : 0),
+      fixed_8_8(track.info.type === "audio" ? 1 : 0),
       // Volume
       u16(0),
       // Reserved
-      IDENTITY_MATRIX,
+      matrixToBytes(rotationMatrix(track.info.type === "video" ? track.info.rotation : 0)),
       // Matrix
-      fixed32(track.info.type === "video" ? track.info.width : 0),
+      fixed_16_16(track.info.type === "video" ? track.info.width : 0),
       // Track width
-      fixed32(track.info.type === "video" ? track.info.height : 0)
+      fixed_16_16(track.info.type === "video" ? track.info.height : 0)
       // Track height
     ]);
   };
@@ -381,7 +402,7 @@ var Mp4Muxer = (() => {
     // Compression ID
     u16(0),
     // Packet size
-    fixed32(track.info.sampleRate)
+    fixed_16_16(track.info.sampleRate)
     // Sample rate
   ], [
     AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
@@ -431,7 +452,7 @@ var Mp4Muxer = (() => {
     // PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
     u32(track.info.sampleRate),
     // InputSampleRate
-    fixed16(0),
+    fixed_8_8(0),
     // OutputGain
     u8(0)
     // ChannelMappingFamily
@@ -927,8 +948,13 @@ var Mp4Muxer = (() => {
   _finalized = new WeakMap();
   _validateOptions = new WeakSet();
   validateOptions_fn = function(options) {
-    if (options.video && !SUPPORTED_VIDEO_CODECS2.includes(options.video.codec)) {
-      throw new Error(`Unsupported video codec: ${options.video.codec}`);
+    if (options.video) {
+      if (!SUPPORTED_VIDEO_CODECS2.includes(options.video.codec)) {
+        throw new Error(`Unsupported video codec: ${options.video.codec}`);
+      }
+      if (options.video.rotation !== void 0 && ![0, 90, 180, 270].includes(options.video.rotation)) {
+        throw new Error(`Invalid video rotation: ${options.video.rotation}. Has to be 0, 90, 180 or 270.`);
+      }
     }
     if (options.audio && !SUPPORTED_AUDIO_CODECS2.includes(options.audio.codec)) {
       throw new Error(`Unsupported audio codec: ${options.audio.codec}`);
@@ -948,6 +974,7 @@ var Mp4Muxer = (() => {
   };
   _prepareTracks = new WeakSet();
   prepareTracks_fn = function() {
+    var _a;
     if (__privateGet(this, _options).video) {
       __privateSet(this, _videoTrack, {
         id: 1,
@@ -955,7 +982,8 @@ var Mp4Muxer = (() => {
           type: "video",
           codec: __privateGet(this, _options).video.codec,
           width: __privateGet(this, _options).video.width,
-          height: __privateGet(this, _options).video.height
+          height: __privateGet(this, _options).video.height,
+          rotation: (_a = __privateGet(this, _options).video.rotation) != null ? _a : 0
         },
         timescale: 720,
         // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates

@@ -6,13 +6,22 @@ import {
 	Track,
 	VideoTrack
 } from './muxer';
-import { ascii, i16, intoTimescale, last, u16, u64, u8, u32, fixed32, fixed16, u24 } from './misc';
-
-const IDENTITY_MATRIX = [
-	0x00010000, 0, 0,
-	0, 0x00010000, 0,
-	0, 0, 0x40000000
-].map(u32);
+import {
+	ascii,
+	i16,
+	intoTimescale,
+	last,
+	u16,
+	u64,
+	u8,
+	u32,
+	fixed_16_16,
+	fixed_8_8,
+	u24,
+	IDENTITY_MATRIX,
+	matrixToBytes,
+	rotationMatrix
+} from './misc';
 
 export interface Box {
 	type: string,
@@ -92,10 +101,10 @@ export const mvhd = (
 		u32(creationTime), // Modification time
 		u32(GLOBAL_TIMESCALE), // Timescale
 		u32(duration), // Duration
-		fixed32(1.0), // Preferred rate
-		fixed16(1.0), // Preferred volume
+		fixed_16_16(1), // Preferred rate
+		fixed_8_8(1), // Preferred volume
 		Array(10).fill(0), // Reserved
-		IDENTITY_MATRIX, // Matrix
+		matrixToBytes(IDENTITY_MATRIX), // Matrix
 		Array(24).fill(0), // Pre-defined
 		u32(nextTrackId) // Next track ID
 	]);
@@ -131,11 +140,11 @@ export const tkhd = (
 		Array(8).fill(0), // Reserved
 		u16(0), // Layer
 		u16(0), // Alternate group
-		fixed16(track.info.type === 'audio' ? 1 : 0), // Volume
+		fixed_8_8(track.info.type === 'audio' ? 1 : 0), // Volume
 		u16(0), // Reserved
-		IDENTITY_MATRIX, // Matrix
-		fixed32(track.info.type === 'video' ? track.info.width : 0), // Track width
-		fixed32(track.info.type === 'video' ? track.info.height : 0) // Track height
+		matrixToBytes(rotationMatrix(track.info.type === 'video' ? track.info.rotation : 0)), // Matrix
+		fixed_16_16(track.info.type === 'video' ? track.info.width : 0), // Track width
+		fixed_16_16(track.info.type === 'video' ? track.info.height : 0) // Track height
 	]);
 };
 
@@ -300,7 +309,7 @@ export const soundSampleDescription = (
 	u16(16), // Sample size (bits)
 	u16(0), // Compression ID
 	u16(0), // Packet size
-	fixed32(track.info.sampleRate) // Sample rate
+	fixed_16_16(track.info.sampleRate) // Sample rate
 ], [
 	AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
 ]);
@@ -333,7 +342,7 @@ export const dOps = (track: AudioTrack) => box('dOps', [
 	u8(track.info.numberOfChannels), // OutputChannelCount
 	u16(3840), // PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
 	u32(track.info.sampleRate), // InputSampleRate
-	fixed16(0), // OutputGain
+	fixed_8_8(0), // OutputGain
 	u8(0) // ChannelMappingFamily
 ]);
 

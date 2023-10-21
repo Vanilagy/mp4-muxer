@@ -86,7 +86,8 @@ interface MuxerOptions {
     video?: {
         codec: 'avc' | 'hevc' | 'vp9' | 'av1',
         width: number,
-        height: number
+        height: number,
+        rotation?: 0 | 90 | 180 | 270 // Adds rotation metadata to the file
     },
 
     audio?: {
