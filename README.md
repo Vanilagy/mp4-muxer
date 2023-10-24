@@ -2,15 +2,18 @@
 
 [![](https://img.shields.io/npm/v/mp4-muxer)](https://www.npmjs.com/package/mp4-muxer)
 [![](https://img.shields.io/bundlephobia/minzip/mp4-muxer)](https://bundlephobia.com/package/mp4-muxer)
+[![](https://img.shields.io/npm/dm/mp4-muxer)](https://www.npmjs.com/package/mp4-muxer)
 
 The WebCodecs API provides low-level access to media codecs, but provides no way of actually packaging (multiplexing)
-the encoded media into a playable file. This project implements an MP4 multiplexer in pure TypeScript, which is
+the encoded media into a playable file. This project implements an MP4 multiplexer in pure TypeScript which is
 high-quality, fast and tiny, and supports both video and audio.
 
 [Demo: Muxing into a file](https://vanilagy.github.io/mp4-muxer/demo/)
 
 > **Note:** If you're looking to create **WebM** files, check out [webm-muxer](https://github.com/Vanilagy/webm-muxer),
 the sister library to mp4-muxer.
+
+> Consider [donating](https://ko-fi.com/vanilagy) if you've found this library useful and wish to support it ❤️
 
 ## Quick start
 The following is an example for a common usage of this library:
@@ -23,7 +26,8 @@ let muxer = new Muxer({
         codec: 'avc',
         width: 1280,
         height: 720
-    }
+    },
+    fastStart: 'in-memory'
 });
 
 let videoEncoder = new VideoEncoder({
@@ -96,11 +100,16 @@ interface MuxerOptions {
         sampleRate: number
     },
 
+    fastStart:
+        | false
+        | 'in-memory'
+        | { expectedVideoChunks?: number, expectedAudioChunks?: number }
+
     firstTimestampBehavior?: 'strict' | 'offset'
 }
 ```
 Codecs currently supported by this library are AVC/H.264, HEVC/H.265, VP9 and AV1 for video, and AAC and Opus for audio.
-#### `target`
+#### `target` (required)
 This option specifies where the data created by the muxer will be written. The options are:
 - `ArrayBufferTarget`: The file data will be written into a single large buffer, which is then stored in the target.
 
@@ -109,6 +118,7 @@ This option specifies where the data created by the muxer will be written. The o
 
     let muxer = new Muxer({
         target: new ArrayBufferTarget(),
+        fastStart: 'in-memory',
         // ...
     });
 
@@ -146,6 +156,7 @@ This option specifies where the data created by the muxer will be written. The o
             (data, position) => { /* Do something with the data */ },
             () => { /* Muxing has finished */ }
         ),
+        fastStart: false,
         // ...
     });
     ```
@@ -175,6 +186,7 @@ This option specifies where the data created by the muxer will be written. The o
     let fileStream = await fileHandle.createWritable();
     let muxer = new Muxer({
         target: new FileSystemWritableFileStreamTarget(fileStream),
+        fastStart: false,
         // ...
     });
     
@@ -183,6 +195,31 @@ This option specifies where the data created by the muxer will be written. The o
     muxer.finalize();
     await fileStream.close(); // Make sure to close the stream
     ```
+#### `fastStart` (required)
+By default, MP4 metadata is stored at the end of the file in the `moov` box - this makes writing the file faster and
+easier. However, placing this `moov` box at the _start_ of the file instead (known as "Fast Start") provides certain
+benefits: The file becomes easier to stream over the web without range requests, and sites like YouTube can start
+processing the video while it's uploading. This library provides full control over the placement of the `moov` box by
+setting `fastStart` to one of these options:
+- `false`: Disables Fast Start, placing metadata at the end of the file. This option is the fastest and uses the least
+    memory. This option is recommended for large, unbounded files that are streamed directly to disk.
+- `'in-memory'`: Produces a file with Fast Start by keeping all media chunks in memory until the file is finalized. This
+    option produces the most compact output possible at the cost of a more expensive finalization step and higher memory
+    requirements. You should _always_ use this option when using `ArrayBufferTarget` as it will result in a
+    higher-quality output with no change in memory footprint.
+- `object`: Produces a file with Fast Start by reserving space for metadata when muxing begins. To know
+    how many bytes need to be reserved to be safe, you'll have to provide the following data:
+    ```ts
+    {
+        expectedVideoChunks?: number,
+        expectedAudioChunks?: number
+    }
+    ```
+    Note that the property `expectedVideoChunks` is _required_ if you have a video track - the same goes for audio. With
+    this option set, you cannot mux more chunks than the number you've specified (although less is fine).
+
+    This option is faster than `'in-memory'` and uses no additional memory, but results in a slightly larger output,
+    making it useful for when you want to stream the file to disk while still retaining Fast Start.
 #### `firstTimestampBehavior` (optional)
 Specifies how to deal with the first chunk in each track having a non-zero timestamp. In the default strict mode,
 timestamps must start with 0 to ensure proper playback. However, when directly piping video frames or audio data
