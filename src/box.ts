@@ -74,7 +74,10 @@ export const ftyp = (holdsHevc: boolean) => {
 };
 
 /** Movie Sample Data Box. Contains the actual frames/samples of the media. */
-export const mdat = (): Box => ({ type: 'mdat', largeSize: true });
+export const mdat = (reserveLargeSize: boolean): Box => ({ type: 'mdat', largeSize: reserveLargeSize });
+
+/** Free Space Box: A box that designates unused space in the movie data file. */
+export const free = (size: number): Box => ({ type: 'free', size });
 
 /**
  * Movie Box: Used to specify the information that defines a movie - that is, the information that allows
@@ -398,17 +401,17 @@ export const stsz = (track: Track) => fullBox('stsz', 0, 0, [
 
 /** Chunk Offset Box: Identifies the location of each chunk of data in the media's data stream, relative to the file. */
 export const stco = (track: Track) => {
-	if (track.writtenChunks.length > 0 && last(track.writtenChunks).offset >= 2**32) {
+	if (track.finalizedChunks.length > 0 && last(track.finalizedChunks).offset >= 2**32) {
 		// If the file is large, use the co64 box
 		return fullBox('co64', 0, 0, [
-			u32(track.writtenChunks.length), // Number of entries
-			track.writtenChunks.map(x => u64(x.offset)) // Chunk offset table
+			u32(track.finalizedChunks.length), // Number of entries
+			track.finalizedChunks.map(x => u64(x.offset)) // Chunk offset table
 		]);
 	}
 
 	return fullBox('stco', 0, 0, [
-		u32(track.writtenChunks.length), // Number of entries
-		track.writtenChunks.map(x => u32(x.offset)) // Chunk offset table
+		u32(track.finalizedChunks.length), // Number of entries
+		track.finalizedChunks.map(x => u32(x.offset)) // Chunk offset table
 	]);
 };
 

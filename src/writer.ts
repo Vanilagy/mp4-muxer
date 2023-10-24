@@ -71,11 +71,28 @@ export abstract class Writer {
 		if (box.largeSize) this.writeU64(size);
 	}
 
+	measureBoxHeader(box: Box) {
+		return 8 + (box.largeSize ? 8 : 0);
+	}
+
 	patchBox(box: Box) {
 		let endPos = this.pos;
 		this.seek(this.offsets.get(box));
 		this.writeBox(box);
 		this.seek(endPos);
+	}
+
+	measureBox(box: Box) {
+		if (box.contents && !box.children) {
+			let headerSize = this.measureBoxHeader(box);
+			return headerSize + box.contents.byteLength;
+		} else {
+			let result = this.measureBoxHeader(box);
+			if (box.contents) result += box.contents.byteLength;
+			if (box.children) for (let child of box.children) if (child) result += this.measureBox(child);
+
+			return result;
+		}
 	}
 }
 
@@ -87,6 +104,7 @@ export class ArrayBufferTargetWriter extends Writer {
 	#target: ArrayBufferTarget;
 	#buffer = new ArrayBuffer(2**16);
 	#bytes = new Uint8Array(this.#buffer);
+	#maxPos = 0;
 
 	constructor(target: ArrayBufferTarget) {
 		super();
@@ -113,11 +131,13 @@ export class ArrayBufferTargetWriter extends Writer {
 
 		this.#bytes.set(data, this.pos);
 		this.pos += data.byteLength;
+
+		this.#maxPos = Math.max(this.#maxPos, this.pos);
 	}
 
 	finalize() {
 		this.#ensureSize(this.pos);
-		this.#target.buffer = this.#buffer.slice(0, this.pos);
+		this.#target.buffer = this.#buffer.slice(0, Math.max(this.#maxPos, this.pos));
 	}
 }
 

@@ -44,6 +44,7 @@ const startRecording = async () => {
 	// Create an MP4 muxer with a video track and maybe an audio track
 	muxer = new Mp4Muxer.Muxer({
 		target: new Mp4Muxer.ArrayBufferTarget(),
+
 		video: {
 			codec: 'avc',
 			width: canvas.width,
@@ -54,7 +55,13 @@ const startRecording = async () => {
 			sampleRate: audioSampleRate,
 			numberOfChannels: 1
 		} : undefined,
-		firstTimestampBehavior: 'offset' // Because we're directly pumping a MediaStreamTrack's data into it
+
+		// Puts metadata to the start of the file. Since we're using ArrayBufferTarget anyway, this makes no difference
+		// to memory footprint.
+		fastStart: 'in-memory',
+
+		// Because we're directly pumping a MediaStreamTrack's data into it, which doesn't start at timestamp = 0
+		firstTimestampBehavior: 'offset'
 	});
 
 	videoEncoder = new VideoEncoder({

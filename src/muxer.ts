@@ -1,5 +1,5 @@
-import { Box, ftyp, mdat, moov } from './box';
-import { intoTimescale, last } from './misc';
+import { Box, free, ftyp, mdat, moov } from './box';
+import { deepClone, intoTimescale, last } from './misc';
 import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget, Target } from './target';
 import {
 	Writer,
@@ -16,33 +16,46 @@ const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 
 const MAX_CHUNK_DURATION = 0.5; // In seconds
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset'] as const;
 
-interface Mp4MuxerOptions<T extends Target> {
-	target: T,
-	video?: {
-		codec: typeof SUPPORTED_VIDEO_CODECS[number],
-		width: number,
-		height: number,
-		rotation?: 0 | 90 | 180 | 270
-	},
-	audio?: {
-		codec: typeof SUPPORTED_AUDIO_CODECS[number],
-		numberOfChannels: number,
-		sampleRate: number
-	},
-	firstTimestampBehavior?: typeof FIRST_TIMESTAMP_BEHAVIORS[number]
+interface VideoOptions {
+	codec: typeof SUPPORTED_VIDEO_CODECS[number],
+	width: number,
+	height: number,
+	rotation?: 0 | 90 | 180 | 270
 }
+
+interface AudioOptions {
+	codec: typeof SUPPORTED_AUDIO_CODECS[number],
+	numberOfChannels: number,
+	sampleRate: number
+}
+
+type NoInfer<T> = T extends infer S ? S : never;
+type Mp4MuxerOptions<
+	T extends Target,
+	V extends VideoOptions | undefined = undefined,
+	A extends AudioOptions | undefined = undefined
+> =  {
+	target: T,
+	video?: V,
+	audio?: A,
+	fastStart: false | 'in-memory' | (
+		(NoInfer<V> extends undefined ? { expectedVideoChunks?: never } : { expectedVideoChunks: number })
+		& (NoInfer<A> extends undefined ? { expectedAudioChunks?: never } : { expectedAudioChunks: number })
+	),
+	firstTimestampBehavior?: typeof FIRST_TIMESTAMP_BEHAVIORS[number]
+};
 
 export interface Track {
 	id: number,
 	info: {
 		type: 'video',
-		codec: Mp4MuxerOptions<any>['video']['codec'],
+		codec: VideoOptions['codec'],
 		width: number,
 		height: number,
 		rotation: 0 | 90 | 180 | 270
 	} | {
 		type: 'audio',
-		codec: Mp4MuxerOptions<any>['audio']['codec'],
+		codec: AudioOptions['codec'],
 		numberOfChannels: number,
 		sampleRate: number
 	},
@@ -56,7 +69,7 @@ export interface Track {
 	timeToSampleTable: { sampleCount: number, sampleDelta: number }[];
 	lastTimescaleUnits: number,
 
-	writtenChunks: Chunk[],
+	finalizedChunks: Chunk[],
 	currentChunk: Chunk,
 	compactlyCodedChunkTable: {
 		firstChunk: number,
@@ -81,21 +94,32 @@ interface Chunk {
 	offset?: number
 }
 
-export class Muxer<T extends Target> {
+export class Muxer<
+	T extends Target,
+	V extends VideoOptions | never = never,
+	A extends AudioOptions | never = never
+> {
 	target: T;
 
-	#options: Mp4MuxerOptions<T>;
+	#options: Mp4MuxerOptions<T, V, A>;
 	#writer: Writer;
+	#ftypSize: number;
 	#mdat: Box;
 
 	#videoTrack: Track = null;
 	#audioTrack: Track = null;
 	#creationTime = Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET;
+	#finalizedChunks: Chunk[] = [];
 
 	#finalized = false;
 
-	constructor(options: Mp4MuxerOptions<T>) {
+	constructor(options: Mp4MuxerOptions<T, V, A>) {
 		this.#validateOptions(options);
+
+		// Don't want these to be modified from the outside while processing:
+		options.video = deepClone(options.video);
+		options.audio = deepClone(options.audio);
+		options.fastStart = deepClone(options.fastStart);
 
 		this.target = options.target;
 		this.#options = {
@@ -119,7 +143,7 @@ export class Muxer<T extends Target> {
 		this.#prepareTracks();
 	}
 
-	#validateOptions(options: Mp4MuxerOptions<T>) {
+	#validateOptions(options: Mp4MuxerOptions<T, V, A>) {
 		if (options.video) {
 			if (!SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
 				throw new Error(`Unsupported video codec: ${options.video.codec}`);
@@ -137,16 +161,71 @@ export class Muxer<T extends Target> {
 		if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
 			throw new Error(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
 		}
+
+		if (typeof options.fastStart === 'object') {
+			if (options.video && options.fastStart.expectedVideoChunks === undefined) {
+				throw new Error(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
+			}
+
+			if (options.audio && options.fastStart.expectedAudioChunks === undefined) {
+				throw new Error(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
+			}
+		} else if (![false, 'in-memory'].includes(options.fastStart)) {
+			throw new Error(`'fastStart' option must be false, 'in-memory' or an object.`);
+		}
 	}
 
 	#writeHeader() {
 		let holdsHevc = this.#options.video?.codec === 'hevc';
 		this.#writer.writeBox(ftyp(holdsHevc));
 
-		this.#mdat = mdat();
-		this.#writer.writeBox(this.#mdat);
+		this.#ftypSize = this.#writer.pos;
+
+		if (this.#options.fastStart === 'in-memory') {
+			this.#mdat = mdat(false);
+		} else {
+			if (typeof this.#options.fastStart === 'object') {
+				let moovSizeUpperBound = this.#computeMoovSizeUpperBound();
+				this.#writer.seek(this.#writer.pos + moovSizeUpperBound);
+			}
+
+			this.#mdat = mdat(true); // Reserve large size by default, can refine this when finalizing.
+			this.#writer.writeBox(this.#mdat);
+		}
 
 		this.#maybeFlushStreamingTargetWriter();
+	}
+
+	#computeMoovSizeUpperBound() {
+		if (typeof this.#options.fastStart !== 'object') return;
+
+		let upperBound = 0;
+		let sampleCounts = [
+			this.#options.fastStart.expectedVideoChunks,
+			this.#options.fastStart.expectedAudioChunks
+		];
+
+		for (let n of sampleCounts) {
+			if (!n) continue;
+
+			// Given the max allowed sample count, compute the space they'll take up in the Sample Table Box, assuming
+			// the worst case for each individual box:
+
+			// stts box - since it is compactly coded, the maximum length of this table will be 2/3n
+			upperBound += (4 + 4) * Math.ceil(2/3 * n);
+			// stss box - 1 entry per sample
+			upperBound += 4 * n;
+			// stsc box - since it is compactly coded, the maximum length of this table will be 2/3n
+			upperBound += (4 + 4 + 4) * Math.ceil(2/3 * n);
+			// stsz box - 1 entry per sample
+			upperBound += 4 * n;
+			// co64 box - we assume 1 sample per chunk and 64-bit chunk offsets
+			upperBound += 8 * n;
+		}
+
+		upperBound += 4096; // Assume a generous 4 kB for everything else: Track metadata, codec descriptors, etc.
+
+		return upperBound;
 	}
 
 	#prepareTracks() {
@@ -163,7 +242,7 @@ export class Muxer<T extends Target> {
 				timescale: 720, // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates
 				codecPrivate: new Uint8Array(0),
 				samples: [],
-				writtenChunks: [],
+				finalizedChunks: [],
 				currentChunk: null,
 				firstTimestamp: undefined,
 				lastTimestamp: -1,
@@ -192,7 +271,7 @@ export class Muxer<T extends Target> {
 				timescale: this.#options.audio.sampleRate,
 				codecPrivate: guessedCodecPrivate,
 				samples: [],
-				writtenChunks: [],
+				finalizedChunks: [],
 				currentChunk: null,
 				firstTimestamp: undefined,
 				lastTimestamp: -1,
@@ -247,6 +326,15 @@ export class Muxer<T extends Target> {
 		this.#ensureNotFinalized();
 		if (!this.#options.video) throw new Error('No video track declared.');
 
+		if (
+			typeof this.#options.fastStart === 'object' &&
+			this.#videoTrack.samples.length === this.#options.fastStart.expectedVideoChunks
+		) {
+			throw new Error(`Cannot add more video chunks than specified in 'fastStart' (${
+				this.#options.fastStart.expectedVideoChunks
+			}).`);
+		}
+
 		this.#addSampleToTrack(this.#videoTrack, data, type, timestamp, duration, meta);
 	}
 
@@ -267,6 +355,15 @@ export class Muxer<T extends Target> {
 		this.#ensureNotFinalized();
 		if (!this.#options.audio) throw new Error('No audio track declared.');
 
+		if (
+			typeof this.#options.fastStart === 'object' &&
+			this.#audioTrack.samples.length === this.#options.fastStart.expectedAudioChunks
+		) {
+			throw new Error(`Cannot add more audio chunks than specified in 'fastStart' (${
+				this.#options.fastStart.expectedAudioChunks
+			}).`);
+		}
+
 		this.#addSampleToTrack(this.#audioTrack, data, type, timestamp, duration, meta);
 	}
 
@@ -286,7 +383,7 @@ export class Muxer<T extends Target> {
 		track.lastTimestamp = timestampInSeconds;
 
 		if (!track.currentChunk || timestampInSeconds - track.currentChunk.startTimestamp >= MAX_CHUNK_DURATION) {
-			if (track.currentChunk) this.#writeCurrentChunk(track); // Chunk is long enough, write it out
+			if (track.currentChunk) this.#finalizeCurrentChunk(track); // Chunk is long enough, finalize it
 
 			track.currentChunk = {
 				startTimestamp: timestampInSeconds,
@@ -321,7 +418,7 @@ export class Muxer<T extends Target> {
 				lastTableEntry.sampleDelta = delta;
 				lastTableEntry.sampleCount++;
 			} else if (lastTableEntry.sampleDelta === delta) {
-				// Simply, simply increment the count
+				// Simply increment the count
 				lastTableEntry.sampleCount++;
 			} else {
 				// The delta has changed, so subtract one from the previous run and create a new run with the new delta
@@ -364,24 +461,31 @@ export class Muxer<T extends Target> {
 		return timestamp;
 	}
 
-	#writeCurrentChunk(track: Track) {
+	#finalizeCurrentChunk(track: Track) {
 		if (!track.currentChunk) return;
-
-		track.currentChunk.offset = this.#writer.pos;
-		for (let bytes of track.currentChunk.sampleData) this.#writer.write(bytes);
-		track.currentChunk.sampleData = null;
 
 		if (
 			track.compactlyCodedChunkTable.length === 0
 			|| last(track.compactlyCodedChunkTable).samplesPerChunk !== track.currentChunk.sampleCount
 		) {
 			track.compactlyCodedChunkTable.push({
-				firstChunk: track.writtenChunks.length + 1, // 1-indexed
+				firstChunk: track.finalizedChunks.length + 1, // 1-indexed
 				samplesPerChunk: track.currentChunk.sampleCount
 			});
 		}
 
-		track.writtenChunks.push(track.currentChunk);
+		track.finalizedChunks.push(track.currentChunk);
+		this.#finalizedChunks.push(track.currentChunk);
+
+		if (this.#options.fastStart === 'in-memory') {
+			track.currentChunk.offset = 0; // We'll compute the proper offset when finalizing
+			return;
+		}
+
+		// Write out the data
+		track.currentChunk.offset = this.#writer.pos;
+		for (let bytes of track.currentChunk.sampleData) this.#writer.write(bytes);
+		track.currentChunk.sampleData = null;
 
 		this.#maybeFlushStreamingTargetWriter();
 	}
@@ -400,16 +504,69 @@ export class Muxer<T extends Target> {
 
 	/** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
 	finalize() {
-		if (this.#videoTrack) this.#writeCurrentChunk(this.#videoTrack);
-		if (this.#audioTrack) this.#writeCurrentChunk(this.#audioTrack);
+		if (this.#videoTrack) this.#finalizeCurrentChunk(this.#videoTrack);
+		if (this.#audioTrack) this.#finalizeCurrentChunk(this.#audioTrack);
 
-		let mdatPos = this.#writer.offsets.get(this.#mdat);
-		let mdatSize = this.#writer.pos - mdatPos;
-		this.#mdat.size = mdatSize;
-		this.#writer.patchBox(this.#mdat);
+		let tracks = [this.#videoTrack, this.#audioTrack].filter(Boolean);
 
-		let movieBox = moov([this.#videoTrack, this.#audioTrack].filter(Boolean), this.#creationTime);
-		this.#writer.writeBox(movieBox);
+		if (this.#options.fastStart === 'in-memory') {
+			let mdatSize: number;
+
+			// We know how many chunks there are, but computing the chunk positions requires an iterative approach:
+			// In order to know where the first chunk should go, we first need to know the size of the moov box. But we
+			// cannot write a proper moov box without first knowing all chunk positions. So, we generate a tentative
+			// moov box with placeholder values (0) for the chunk offsets to be able to compute its size. If it then
+			// turns out that appending all chunks exceeds 4 GiB, we need to repeat this process, now with the co64 box
+			// being used in the moov box instead, which will make it larger. After that, we definitely know the final
+			// size of the moov box and can compute the proper chunk positions.
+
+			for (let i = 0; i < 2; i++) {
+				let movieBox = moov(tracks, this.#creationTime);
+				let movieBoxSize = this.#writer.measureBox(movieBox);
+				mdatSize = this.#writer.measureBox(this.#mdat);
+				let currentChunkPos = this.#writer.pos + movieBoxSize + mdatSize;
+
+				for (let chunk of this.#finalizedChunks) {
+					chunk.offset = currentChunkPos;
+					for (let bytes of chunk.sampleData) {
+						currentChunkPos += bytes.byteLength;
+						mdatSize += bytes.byteLength;
+					}
+				}
+
+				if (currentChunkPos < 2**32) break;
+				if (mdatSize >= 2**32) this.#mdat.largeSize = true;
+			}
+
+			let movieBox = moov(tracks, this.#creationTime);
+			this.#writer.writeBox(movieBox);
+
+			this.#mdat.size = mdatSize;
+			this.#writer.writeBox(this.#mdat);
+
+			for (let chunk of this.#finalizedChunks) {
+				for (let bytes of chunk.sampleData) this.#writer.write(bytes);
+				chunk.sampleData = null;
+			}
+		} else {
+			let mdatPos = this.#writer.offsets.get(this.#mdat);
+			let mdatSize = this.#writer.pos - mdatPos;
+			this.#mdat.size = mdatSize;
+			this.#mdat.largeSize = mdatSize >= 2**32; // Only use the large size if we need it
+			this.#writer.patchBox(this.#mdat);
+
+			let movieBox = moov(tracks, this.#creationTime);
+
+			if (typeof this.#options.fastStart === 'object') {
+				this.#writer.seek(this.#ftypSize);
+				this.#writer.writeBox(movieBox);
+
+				let remainingBytes = mdatPos - this.#writer.pos;
+				this.#writer.writeBox(free(remainingBytes));
+			} else {
+				this.#writer.writeBox(movieBox);
+			}
+		}
 
 		this.#maybeFlushStreamingTargetWriter();
 		this.#writer.finalize();

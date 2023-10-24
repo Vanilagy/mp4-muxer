@@ -83,3 +83,10 @@ export const matrixToBytes = (matrix: number[]) => {
 		fixed_16_16(matrix[6]), fixed_16_16(matrix[7]), fixed_2_30(matrix[8])
 	];
 };
+
+export const deepClone = <T>(x: T): T => {
+	if (!x) return x;
+	if (typeof x !== 'object') return x;
+	if (Array.isArray(x)) return x.map(deepClone) as T;
+	return Object.fromEntries(Object.entries(x).map(([key, value]) => [key, deepClone(value)])) as T;
+};
