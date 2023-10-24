@@ -1,7 +1,47 @@
+declare interface VideoOptions {
+	/**
+	 * The codec of the encoded video chunks.
+	 */
+	codec: 'avc' | 'hevc' | 'vp9' | 'av1',
+	/**
+	 * The width of the video in pixels.
+	 */
+	width: number,
+	/**
+	 * The height of the video in pixels.
+	 */
+	height: number,
+	/**
+	 * The clockwise rotation of the video in degrees.
+	 */
+	rotation?: 0 | 90 | 180 | 270
+}
+
+declare interface AudioOptions {
+	/**
+	 * The codec of the encoded audio chunks.
+	 */
+	codec: 'aac' | 'opus',
+	/**
+	 * The number of audio channels in the audio track.
+	 */
+	numberOfChannels: number,
+	/**
+	 * The sample rate of the audio track in samples per second per channel.
+	 */
+	sampleRate: number
+}
+
+type NoInfer<T> = T extends infer S ? S : never;
+
 /**
  * Describes the properties used to configure an instance of `Muxer`.
  */
-declare interface MuxerOptions<T extends Target> {
+declare type MuxerOptions<
+	T extends Target,
+	V extends VideoOptions | undefined = undefined,
+	A extends AudioOptions | undefined = undefined
+> = {
 	/**
 	 * Specifies what happens with the data created by the muxer.
 	 */
@@ -10,42 +50,32 @@ declare interface MuxerOptions<T extends Target> {
 	/**
 	 * When set, declares the existence of a video track in the MP4 file and configures that video track.
 	 */
-	video?: {
-		/**
-		 * The codec of the encoded video chunks.
-		 */
-		codec: 'avc' | 'hevc' | 'vp9' | 'av1',
-		/**
-		 * The width of the video in pixels.
-		 */
-		width: number,
-		/**
-		 * The height of the video in pixels.
-		 */
-		height: number,
-		/**
-		 * The clockwise rotation of the video in degrees.
-		 */
-		rotation?: 0 | 90 | 180 | 270
-	},
+	video?: V,
 
 	/**
 	 * When set, declares the existence of an audio track in the MP4 file and configures that audio track.
 	 */
-	audio?: {
-		/**
-		 * The codec of the encoded audio chunks.
-		 */
-		codec: 'aac' | 'opus',
-		/**
-		 * The number of audio channels in the audio track.
-		 */
-		numberOfChannels: number,
-		/**
-		 * The sample rate of the audio track in samples per second per channel.
-		 */
-		sampleRate: number
-	},
+	audio?: A,
+
+	/**
+	 * Controls the placement of metadata in the file. Placing metadata at the start of the file is known as "Fast
+	 * Start", which results in better playback at the cost of more required processing or memory.
+	 *
+	 * Use `false` to disable Fast Start, placing the metadata at the end of the file. Fastest and uses the least
+	 * memory.
+	 *
+	 * Use `'in-memory'` to produce a file with Fast Start by keeping all media chunks in memory until the file is
+	 * finalized. This produces a high-quality and compact output at the cost of a more expensive finalization step and
+	 * higher memory requirements.
+	 *
+	 * Use an object to produce a file with Fast Start by reserving space for metadata when muxing starts. In order to
+	 * know how much space needs to be reserved, you'll need to tell it the upper bound of how many media chunks will be
+	 * muxed. Do this by setting `expectedVideoChunks` and/or `expectedAudioChunks`.
+	 */
+	fastStart: false | 'in-memory' | (
+		(NoInfer<V> extends undefined ? { expectedVideoChunks?: never } : { expectedVideoChunks: number })
+		& (NoInfer<A> extends undefined ? { expectedAudioChunks?: never } : { expectedAudioChunks: number })
+	),
 
 	/**
 	 * Specifies how to deal with the first chunk in each track having a non-zero timestamp. In the default strict mode,
@@ -58,7 +88,7 @@ declare interface MuxerOptions<T extends Target> {
 	 * starts at 0.
 	 */
 	firstTimestampBehavior?: 'strict' | 'offset'
-}
+};
 
 declare type Target = ArrayBufferTarget | StreamTarget | FileSystemWritableFileStreamTarget;
 
