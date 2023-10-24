@@ -1,6 +1,6 @@
 {
   "name": "mp4-muxer",
-  "version": "2.3.0",
+  "version": "3.0.0",
   "description": "MP4 multiplexer in pure TypeScript with support for WebCodecs API, video & audio.",
   "main": "./build/mp4-muxer.js",
   "module": "./build/mp4-muxer.mjs",
