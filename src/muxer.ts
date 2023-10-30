@@ -96,8 +96,8 @@ interface Chunk {
 
 export class Muxer<
 	T extends Target,
-	V extends VideoOptions | never = never,
-	A extends AudioOptions | never = never
+	V extends VideoOptions | undefined = undefined,
+	A extends AudioOptions | undefined = undefined
 > {
 	target: T;
 

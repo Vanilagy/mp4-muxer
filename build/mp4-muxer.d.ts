@@ -129,14 +129,18 @@ declare class FileSystemWritableFileStreamTarget {
  * Used to multiplex video and audio chunks into a single MP4 file. For each MP4 file you want to create, create
  * one instance of `Muxer`.
  */
-declare class Muxer<T extends Target> {
+declare class Muxer<
+	T extends Target,
+	V extends VideoOptions | undefined = undefined,
+	A extends AudioOptions | undefined = undefined
+> {
 	target: T;
 
 	/**
 	 * Creates a new instance of `Muxer`.
 	 * @param options Specifies configuration and metadata for the MP4 file.
 	 */
-	constructor(options: MuxerOptions<T>);
+	constructor(options: MuxerOptions<T, V, A>);
 
 	/**
 	 * Adds a new, encoded video chunk to the MP4 file.
