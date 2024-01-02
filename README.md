@@ -134,7 +134,7 @@ This option specifies where the data created by the muxer will be written. The o
     constructor(
         onData: (data: Uint8Array, position: number) => void,
         onDone?: () => void,
-        options?: { chunked?: true, chunkSize?: number }
+        options?: { chunked?: boolean, chunkSize?: number }
     );
     ```
 
