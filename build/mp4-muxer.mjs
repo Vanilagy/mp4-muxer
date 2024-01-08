@@ -920,6 +920,9 @@ var Muxer = class {
   }
   /** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
   finalize() {
+    if (__privateGet(this, _finalized)) {
+      throw new Error("Cannot finalize a muxer more than once.");
+    }
     if (__privateGet(this, _videoTrack))
       __privateMethod(this, _finalizeCurrentChunk, finalizeCurrentChunk_fn).call(this, __privateGet(this, _videoTrack));
     if (__privateGet(this, _audioTrack))

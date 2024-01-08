@@ -504,6 +504,10 @@ export class Muxer<
 
 	/** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
 	finalize() {
+		if (this.#finalized) {
+			throw new Error('Cannot finalize a muxer more than once.');
+		}
+
 		if (this.#videoTrack) this.#finalizeCurrentChunk(this.#videoTrack);
 		if (this.#audioTrack) this.#finalizeCurrentChunk(this.#audioTrack);
 
