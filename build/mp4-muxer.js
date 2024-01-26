@@ -529,7 +529,7 @@ var Mp4Muxer = (() => {
   };
   var AUDIO_CODEC_TO_BOX_NAME = {
     "aac": "mp4a",
-    "opus": "opus"
+    "opus": "Opus"
   };
   var AUDIO_CODEC_TO_CONFIGURATION_BOX = {
     "aac": esds,

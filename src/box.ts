@@ -431,7 +431,7 @@ const VIDEO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_VIDEO_CODECS[num
 
 const AUDIO_CODEC_TO_BOX_NAME: Record<typeof SUPPORTED_AUDIO_CODECS[number], string> = {
 	'aac': 'mp4a',
-	'opus': 'opus'
+	'opus': 'Opus'
 };
 
 const AUDIO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_AUDIO_CODECS[number], (track: AudioTrack) => Box> = {
