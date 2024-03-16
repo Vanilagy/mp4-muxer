@@ -528,8 +528,8 @@ var mfhd = (sequenceNumber) => {
 var traf = (track) => {
   return box("traf", null, [
     tfhd(track),
-    trun(track),
-    tfdt(track)
+    tfdt(track),
+    trun(track)
   ]);
 };
 var tfhd = (track) => {

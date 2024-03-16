@@ -458,8 +458,8 @@ export const mfhd = (sequenceNumber: number) => {
 export const traf = (track: Track) => {
 	return box('traf', null, [
 		tfhd(track),
-		trun(track),
-		tfdt(track)
+		tfdt(track),
+		trun(track)
 	]);
 };
 

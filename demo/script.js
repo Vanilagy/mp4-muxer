@@ -58,7 +58,7 @@ const startRecording = async () => {
 
 		// Puts metadata to the start of the file. Since we're using ArrayBufferTarget anyway, this makes no difference
 		// to memory footprint.
-		fastStart: false,
+		fastStart: 'in-memory',
 
 		// Because we're directly pumping a MediaStreamTrack's data into it, which doesn't start at timestamp = 0
 		firstTimestampBehavior: 'offset'
@@ -119,7 +119,7 @@ const encodeVideoFrame = () => {
 	framesGenerated++;
 
 	// Ensure a video key frame at least every 5 seconds for good scrubbing
-	let needsKeyFrame = elapsedTime - lastKeyFrame >= 1000;
+	let needsKeyFrame = elapsedTime - lastKeyFrame >= 5000;
 	if (needsKeyFrame) lastKeyFrame = elapsedTime;
 
 	videoEncoder.encode(frame, { keyFrame: needsKeyFrame });
