@@ -207,15 +207,13 @@ export class StreamTargetWriter extends Writer {
 				}
 			}
 
-			this.#target.onData(chunk.data, chunk.start);
+			this.#target.options.onData?.(chunk.data, chunk.start);
 		}
 
 		this.#sections.length = 0;
 	}
 
-	finalize() {
-		this.#target.onDone?.();
-	}
+	finalize() {}
 }
 
 const DEFAULT_CHUNK_SIZE = 2**24;
@@ -350,7 +348,7 @@ export class ChunkedStreamTargetWriter extends Writer {
 			if (!chunk.shouldFlush && !force) continue;
 
 			for (let section of chunk.written) {
-				this.#target.onData(
+				this.#target.options.onData?.(
 					chunk.data.subarray(section.start, section.end),
 					chunk.start + section.start
 				);
@@ -361,7 +359,6 @@ export class ChunkedStreamTargetWriter extends Writer {
 
 	finalize() {
 		this.#flushChunks(true);
-		this.#target.onDone?.();
 	}
 }
 
@@ -371,14 +368,13 @@ export class ChunkedStreamTargetWriter extends Writer {
  */
 export class FileSystemWritableFileStreamTargetWriter extends ChunkedStreamTargetWriter {
 	constructor(target: FileSystemWritableFileStreamTarget) {
-		super(new StreamTarget(
-			(data, position) => target.stream.write({
+		super(new StreamTarget({
+			onData: (data, position) => target.stream.write({
 				type: 'write',
 				data,
 				position
 			}),
-			undefined,
-			{ chunkSize: target.options?.chunkSize }
-		));
+			chunkSize: target.options?.chunkSize
+		}));
 	}
 }
