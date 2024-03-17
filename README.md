@@ -217,7 +217,8 @@ setting `fastStart` to one of these options:
     Fragmented files are ideal for streaming, as they are optimized for random access with minimal to no seeking.
     Furthermore, they remain lightweight to create no matter how large the file becomes, as they don't require media to
     be kept in memory for very long. While fragmented files are not as widely supported as regular MP4 files, this
-    option provides powerful benefits with very little downsides. Further details [here](#fragmented-mp4-notes).
+    option provides powerful benefits with very little downsides. Further details
+    [here](#additional-notes-about-fragmented-mp4-files).
 - `object`: Produces a file with Fast Start by reserving space for metadata when muxing begins. To know
     how many bytes need to be reserved to be safe, you'll have to provide the following data:
     ```ts
