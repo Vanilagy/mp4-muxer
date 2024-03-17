@@ -11,6 +11,8 @@ fragmented MP4.
 
 [Demo: Muxing into a file](https://vanilagy.github.io/mp4-muxer/demo/)
 
+[Demo: Live streaming](https://vanilagy.github.io/mp4-muxer/demo-streaming)
+
 > **Note:** If you're looking to create **WebM** files, check out [webm-muxer](https://github.com/Vanilagy/webm-muxer),
 the sister library to mp4-muxer.
 
@@ -147,9 +149,11 @@ This option specifies where the data created by the muxer will be written. The o
     When using `chunked: true`, data created by the muxer will first be accumulated and only written out once it has
     reached sufficient size. This is useful for reducing the total amount of writes, at the cost of latency. It using a
     default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the desired byte length.
-    
-    Note that this target is **not** intended for *live-streaming*, i.e. playback before muxing has finished.
 
+    If you want to use this target for *live-streaming*, i.e. playback before muxing has finished, you also need to set
+    `fastStart: 'fragmented'`.
+
+    Usage example:
     ```js
     import { Muxer, StreamTarget } from 'mp4-muxer';
 
@@ -208,7 +212,7 @@ setting `fastStart` to one of these options:
     option produces the most compact output possible at the cost of a more expensive finalization step and higher memory
     requirements. This is the preferred option when using `ArrayBufferTarget` as it will result in a higher-quality
     output with no change in memory footprint.
-- `'fragmented`: Produces a _fragmented MP4 (fMP4)_ file, evenly placing sample metadata throughout the file by grouping
+- `'fragmented'`: Produces a _fragmented MP4 (fMP4)_ file, evenly placing sample metadata throughout the file by grouping
     it into "fragments" (short sections of media), while placing general metadata at the beginning of the file.
     Fragmented files are ideal for streaming, as they are optimized for random access with minimal to no seeking.
     Furthermore, they remain lightweight to create no matter how large the file becomes, as they don't require media to
@@ -330,7 +334,7 @@ for streaming, while remaining cheap to write even for long files. However, you 
 MP4 files are based on the ISO Base Media Format, which structures its files as a hierarchy of boxes (or atoms). The
 standards used to implement this library were
 [ISO/IEC 14496-1](http://netmedia.zju.edu.cn/multimedia2013/mpeg-4/ISO%20IEC%2014496-1%20MPEG-4%20System%20Standard.pdf),
-[ISO/IEC 14496-12](https://web.archive.org/web/20180219054429/http://l.web.umkc.edu/lizhu/teaching/2016sp.video-communication/ref/mp4.pdf)
+[ISO/IEC 14496-12](https://web.archive.org/web/20231123030701/https://b.goeswhere.com/ISO_IEC_14496-12_2015.pdf)
 and
 [ISO/IEC 14496-14](https://github.com/OpenAnsible/rust-mp4/raw/master/docs/ISO_IEC_14496-14_2003-11-15.pdf).
 Additionally, the

@@ -175,8 +175,10 @@ export class Muxer<T extends Target> {
 	}
 
 	#writeHeader() {
-		let holdsHevc = this.#options.video?.codec === 'hevc';
-		this.#writer.writeBox(ftyp(holdsHevc));
+		this.#writer.writeBox(ftyp({
+			holdsAvc: this.#options.video?.codec === 'avc',
+			fragmented: this.#options.fastStart === 'fragmented'
+		}));
 
 		this.#ftypSize = this.#writer.pos;
 
@@ -240,7 +242,7 @@ export class Muxer<T extends Target> {
 					height: this.#options.video.height,
 					rotation: this.#options.video.rotation ?? 0
 				},
-				timescale: 720, // = lcm(24, 30, 60, 120, 144, 240, 360), so should fit with many framerates
+				timescale: 11520, // Timescale used by FFmpeg, contains many common frame rates as factors
 				codecPrivate: new Uint8Array(0),
 				samples: [],
 				finalizedChunks: [],
@@ -577,7 +579,7 @@ export class Muxer<T extends Target> {
 		this.#maybeFlushStreamingTargetWriter();
 	}
 
-	#finalizeFragment() {
+	#finalizeFragment(flushStreamingWriter = true) {
 		if (this.#options.fastStart !== 'fragmented') {
 			throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");
 		}
@@ -645,7 +647,9 @@ export class Muxer<T extends Target> {
 			track.currentChunk = null;
 		}
 
-		this.#maybeFlushStreamingTargetWriter();
+		if (flushStreamingWriter) {
+			this.#maybeFlushStreamingTargetWriter();
+		}
 	}
 
 	#maybeFlushStreamingTargetWriter() {
@@ -670,7 +674,7 @@ export class Muxer<T extends Target> {
 			for (let videoSample of this.#videoSampleQueue) this.#addSampleToTrack(this.#videoTrack, videoSample);
 			for (let audioSample of this.#audioSampleQueue) this.#addSampleToTrack(this.#audioTrack, audioSample);
 
-			this.#finalizeFragment();
+			this.#finalizeFragment(false); // Don't flush the last fragment as we will flush it with the mfra box soon
 		} else {
 			if (this.#videoTrack) this.#finalizeCurrentChunk(this.#videoTrack);
 			if (this.#audioTrack) this.#finalizeCurrentChunk(this.#audioTrack);
