@@ -121,7 +121,6 @@ const startRecording = async () => {
 };
 startRecordingButton.addEventListener('click', startRecording);
 
-
 const encodeVideoFrame = () => {
 	let elapsedTime = document.timeline.currentTime - startTime;
 	let frame = new VideoFrame(canvas, {
