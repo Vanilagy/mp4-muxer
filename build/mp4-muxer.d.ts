@@ -32,16 +32,10 @@ declare interface AudioOptions {
 	sampleRate: number
 }
 
-type NoInfer<T> = T extends infer S ? S : never;
-
 /**
  * Describes the properties used to configure an instance of `Muxer`.
  */
-declare type MuxerOptions<
-	T extends Target,
-	V extends VideoOptions | undefined = undefined,
-	A extends AudioOptions | undefined = undefined
-> = {
+declare type MuxerOptions<T extends Target> = {
 	/**
 	 * Specifies what happens with the data created by the muxer.
 	 */
@@ -50,12 +44,12 @@ declare type MuxerOptions<
 	/**
 	 * When set, declares the existence of a video track in the MP4 file and configures that video track.
 	 */
-	video?: V,
+	video?: VideoOptions,
 
 	/**
 	 * When set, declares the existence of an audio track in the MP4 file and configures that audio track.
 	 */
-	audio?: A,
+	audio?: AudioOptions,
 
 	/**
 	 * Controls the placement of metadata in the file. Placing metadata at the start of the file is known as "Fast
@@ -68,14 +62,20 @@ declare type MuxerOptions<
 	 * finalized. This produces a high-quality and compact output at the cost of a more expensive finalization step and
 	 * higher memory requirements.
 	 *
+	 * Use `'fragmented'` to place metadata at the start of the file by creating a fragmented "fMP4" file. In a
+	 * fragmented file, chunks of media and their metadata are written to the file in "fragments", eliminating the need
+	 * to put all metadata in one place. Fragmented files are useful for streaming, as they allow for better random
+	 * access. Furthermore, they remain lightweight to create even for very large files, as they don't require all media
+	 * to be kept in memory. However, fragmented files are not as widely supported as regular MP4 files.
+	 *
 	 * Use an object to produce a file with Fast Start by reserving space for metadata when muxing starts. In order to
 	 * know how much space needs to be reserved, you'll need to tell it the upper bound of how many media chunks will be
 	 * muxed. Do this by setting `expectedVideoChunks` and/or `expectedAudioChunks`.
 	 */
-	fastStart: false | 'in-memory' | (
-		(NoInfer<V> extends undefined ? { expectedVideoChunks?: never } : { expectedVideoChunks: number })
-		& (NoInfer<A> extends undefined ? { expectedAudioChunks?: never } : { expectedAudioChunks: number })
-	),
+	fastStart: false | 'in-memory' | 'fragmented' | {
+		expectedVideoChunks?: number,
+		expectedAudioChunks?: number
+	},
 
 	/**
 	 * Specifies how to deal with the first chunk in each track having a non-zero timestamp. In the default strict mode,
@@ -106,11 +106,11 @@ declare class ArrayBufferTarget {
  * amount of writes, at the cost of latency.
  */
 declare class StreamTarget {
-	constructor(
-		onData: (data: Uint8Array, position: number) => void,
-		onDone?: () => void,
-		options?: { chunked?: boolean, chunkSize?: number }
-	);
+	constructor(options: {
+		onData?: (data: Uint8Array, position: number) => void,
+		chunked?: boolean,
+		chunkSize?: number
+	});
 }
 
 /**
@@ -129,18 +129,14 @@ declare class FileSystemWritableFileStreamTarget {
  * Used to multiplex video and audio chunks into a single MP4 file. For each MP4 file you want to create, create
  * one instance of `Muxer`.
  */
-declare class Muxer<
-	T extends Target,
-	V extends VideoOptions | undefined = undefined,
-	A extends AudioOptions | undefined = undefined
-> {
+declare class Muxer<T extends Target> {
 	target: T;
 
 	/**
 	 * Creates a new instance of `Muxer`.
 	 * @param options Specifies configuration and metadata for the MP4 file.
 	 */
-	constructor(options: MuxerOptions<T, V, A>);
+	constructor(options: MuxerOptions<T>);
 
 	/**
 	 * Adds a new, encoded video chunk to the MP4 file.

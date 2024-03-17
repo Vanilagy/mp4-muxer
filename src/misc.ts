@@ -90,3 +90,7 @@ export const deepClone = <T>(x: T): T => {
 	if (Array.isArray(x)) return x.map(deepClone) as T;
 	return Object.fromEntries(Object.entries(x).map(([key, value]) => [key, deepClone(value)])) as T;
 };
+
+export const isU32 = (value: number) => {
+	return value >= 0 && value < 2**32;
+};

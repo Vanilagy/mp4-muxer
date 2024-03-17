@@ -5,11 +5,11 @@ export class ArrayBufferTarget {
 }
 
 export class StreamTarget {
-	constructor(
-		public onData: (data: Uint8Array, position: number) => void,
-		public onDone?: () => void,
-		public options?: { chunked?: boolean, chunkSize?: number }
-	) {}
+	constructor(public options: {
+		onData?: (data: Uint8Array, position: number) => void,
+		chunked?: boolean,
+		chunkSize?: number
+	}) {}
 }
 
 export class FileSystemWritableFileStreamTarget {

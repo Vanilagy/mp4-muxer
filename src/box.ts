@@ -3,6 +3,7 @@ import {
 	GLOBAL_TIMESCALE,
 	SUPPORTED_AUDIO_CODECS,
 	SUPPORTED_VIDEO_CODECS,
+	Sample,
 	Track,
 	VideoTrack
 } from './muxer';
@@ -20,7 +21,8 @@ import {
 	u24,
 	IDENTITY_MATRIX,
 	matrixToBytes,
-	rotationMatrix
+	rotationMatrix,
+	isU32
 } from './misc';
 
 export interface Box {
@@ -56,20 +58,32 @@ export const fullBox = (
  * File Type Compatibility Box: Allows the reader to determine whether this is a type of file that the
  * reader understands.
  */
-export const ftyp = (holdsHevc: boolean) => {
-	if (holdsHevc) return box('ftyp', [
-		ascii('isom'), // Major brand
-		u32(0), // Minor version
-		ascii('iso4'), // Compatible brand 1
-		ascii('hvc1') // Compatible brand 2
+export const ftyp = (details: {
+	holdsAvc: boolean,
+	fragmented: boolean
+}) => {
+	// You can find the full logic for this at
+	// https://github.com/FFmpeg/FFmpeg/blob/de2fb43e785773738c660cdafb9309b1ef1bc80d/libavformat/movenc.c#L5518
+	// Obviously, this lib only needs a small subset of that logic.
+
+	let minorVersion = 0x200;
+
+	if (details.fragmented) return box('ftyp', [
+		ascii('iso5'), // Major brand
+		u32(minorVersion), // Minor version
+		// Compatible brands
+		ascii('iso5'),
+		ascii('iso6'),
+		ascii('mp41')
 	]);
 
 	return box('ftyp', [
 		ascii('isom'), // Major brand
-		u32(0), // Minor version
-		ascii('isom'), // Compatible brand 1
-		ascii('avc1'), // Compatible brand 2
-		ascii('mp41') // Compatible brand 3
+		u32(minorVersion), // Minor version
+		// Compatible brands
+		ascii('isom'),
+		details.holdsAvc ? ascii('avc1') : [],
+		ascii('mp41')
 	]);
 };
 
@@ -83,9 +97,10 @@ export const free = (size: number): Box => ({ type: 'free', size });
  * Movie Box: Used to specify the information that defines a movie - that is, the information that allows
  * an application to interpret the sample data that is stored elsewhere.
  */
-export const moov = (tracks: Track[], creationTime: number) => box('moov', null, [
+export const moov = (tracks: Track[], creationTime: number, fragmented = false) => box('moov', null, [
 	mvhd(creationTime, tracks),
-	...tracks.map(x => trak(x, creationTime))
+	...tracks.map(x => trak(x, creationTime)),
+	fragmented ? mvex(tracks) : null
 ]);
 
 /** Movie Header Box: Used to specify the characteristics of the entire movie, such as timescale and duration. */
@@ -99,11 +114,15 @@ export const mvhd = (
 	), GLOBAL_TIMESCALE);
 	let nextTrackId = Math.max(...tracks.map(x => x.id)) + 1;
 
-	return fullBox('mvhd', 0, 0, [
-		u32(creationTime), // Creation time
-		u32(creationTime), // Modification time
+	// Conditionally use u64 if u32 isn't enough
+	let needsU64 = !isU32(creationTime) || !isU32(duration);
+	let u32OrU64 = needsU64 ? u64 : u32;
+
+	return fullBox('mvhd', +needsU64, 0, [
+		u32OrU64(creationTime), // Creation time
+		u32OrU64(creationTime), // Modification time
 		u32(GLOBAL_TIMESCALE), // Timescale
-		u32(duration), // Duration
+		u32OrU64(duration), // Duration
 		fixed_16_16(1), // Preferred rate
 		fixed_8_8(1), // Preferred volume
 		Array(10).fill(0), // Reserved
@@ -134,12 +153,15 @@ export const tkhd = (
 		GLOBAL_TIMESCALE
 	);
 
-	return fullBox('tkhd', 0, 3, [
-		u32(creationTime), // Creation time
-		u32(creationTime), // Modification time
+	let needsU64 = !isU32(creationTime) || !isU32(durationInGlobalTimescale);
+	let u32OrU64 = needsU64 ? u64 : u32;
+
+	return fullBox('tkhd', +needsU64, 3, [
+		u32OrU64(creationTime), // Creation time
+		u32OrU64(creationTime), // Modification time
 		u32(track.id), // Track ID
 		u32(0), // Reserved
-		u32(durationInGlobalTimescale), // Duration
+		u32OrU64(durationInGlobalTimescale), // Duration
 		Array(8).fill(0), // Reserved
 		u16(0), // Layer
 		u16(0), // Alternate group
@@ -169,11 +191,14 @@ export const mdhd = (
 		track.timescale
 	);
 
-	return fullBox('mdhd', 0, 0, [
-		u32(creationTime), // Creation time
-		u32(creationTime), // Modification time
+	let needsU64 = !isU32(creationTime) || !isU32(localDuration);
+	let u32OrU64 = needsU64 ? u64 : u32;
+
+	return fullBox('mdhd', +needsU64, 0, [
+		u32OrU64(creationTime), // Creation time
+		u32OrU64(creationTime), // Modification time
 		u32(track.timescale), // Timescale
-		u32(localDuration), // Duration
+		u32OrU64(localDuration), // Duration
 		u16(0b01010101_11000100), // Language ("und", undetermined)
 		u16(0) // Quality
 	]);
@@ -186,7 +211,7 @@ export const hdlr = (componentSubtype: string) => fullBox('hdlr', 0, 0, [
 	u32(0), // Component manufacturer
 	u32(0), // Component flags
 	u32(0), // Component flags mask
-	ascii('mp4-muxer-hdlr') // Component name
+	ascii('mp4-muxer-hdlr', true) // Component name
 ]);
 
 /**
@@ -412,6 +437,180 @@ export const stco = (track: Track) => {
 	return fullBox('stco', 0, 0, [
 		u32(track.finalizedChunks.length), // Number of entries
 		track.finalizedChunks.map(x => u32(x.offset)) // Chunk offset table
+	]);
+};
+
+/**
+ * Movie Extends Box: This box signals to readers that the file is fragmented. Contains a single Track Extends Box
+ * for each track in the movie.
+ */
+export const mvex = (tracks: Track[]) => {
+	return box('mvex', null, tracks.map(trex));
+};
+
+/** Track Extends Box: Contains the default values used by the movie fragments. */
+export const trex = (track: Track) => {
+	return fullBox('trex', 0, 0, [
+		u32(track.id), // Track ID
+		u32(1), // Default sample description index
+		u32(0), // Default sample duration
+		u32(0), // Default sample size
+		u32(0) // Default sample flags
+	]);
+};
+
+/**
+ * Movie Fragment Box: The movie fragments extend the presentation in time. They provide the information that would
+ * previously have been	in the Movie Box.
+ */
+export const moof = (sequenceNumber: number, tracks: Track[]) => {
+	return box('moof', null, [
+		mfhd(sequenceNumber),
+		...tracks.map(traf)
+	]);
+};
+
+/** Movie Fragment Header Box: Contains a sequence number as a safety check. */
+export const mfhd = (sequenceNumber: number) => {
+	return fullBox('mfhd', 0, 0, [
+		u32(sequenceNumber) // Sequence number
+	]);
+};
+
+const fragmentSampleFlags = (sample: Sample) => {
+	let byte1 = 0;
+	let byte2 = 0;
+	let byte3 = 0;
+	let byte4 = 0;
+
+	let sampleIsDifferenceSample = sample.type === 'delta';
+	byte2 |= +sampleIsDifferenceSample;
+
+	if (sampleIsDifferenceSample) {
+		byte1 |= 1; // There is redundant coding in this sample
+	} else {
+		byte1 |= 2; // There is no redundant coding in this sample
+	}
+
+	// Note that there are a lot of other flags to potentially set here, but most are irrelevant / non-necessary
+	return byte1 << 24 | byte2 << 16 | byte3 << 8 | byte4;
+};
+
+/** Track Fragment Box */
+export const traf = (track: Track) => {
+	return box('traf', null, [
+		tfhd(track),
+		tfdt(track),
+		trun(track)
+	]);
+};
+
+/** Track Fragment Header Box: Provides a reference to the extended track, and flags. */
+export const tfhd = (track: Track) => {
+	let tfFlags = 0;
+	tfFlags |= 0x00008; // Default sample duration present
+	tfFlags |= 0x00010; // Default sample size present
+	tfFlags |= 0x00020; // Default sample flags present
+	tfFlags |= 0x20000; // Default base is moof
+
+	// Prefer the second sample over the first one, as the first one is a sync sample and therefore the "odd one out"
+	let referenceSample = track.currentChunk.samples[1] ?? track.currentChunk.samples[0];
+	let referenceSampleInfo = {
+		duration: referenceSample.timescaleUnitsToNextSample,
+		size: referenceSample.size,
+		flags: fragmentSampleFlags(referenceSample)
+	};
+
+	return fullBox('tfhd', 0, tfFlags, [
+		u32(track.id), // Track ID
+		u32(referenceSampleInfo.duration), // Default sample duration
+		u32(referenceSampleInfo.size), // Default sample size
+		u32(referenceSampleInfo.flags) // Default sample flags
+	]);
+};
+
+/**
+ * Track Fragment Decode Time Box: Provides the absolute decode time of the first sample of the fragment. This is
+ * useful for performing random access on the media file.
+ */
+export const tfdt = (track: Track) => {
+	return fullBox('tfdt', 1, 0, [
+		u64(intoTimescale(track.currentChunk.startTimestamp, track.timescale)) // Base Media Decode Time
+	]);
+};
+
+/** Track Run Box: Specifies a run of contiguous samples for a given track. */
+export const trun = (track: Track) => {
+	let allSampleDurations = track.currentChunk.samples.map(x => x.timescaleUnitsToNextSample);
+	let allSampleSizes = track.currentChunk.samples.map(x => x.size);
+	let allSampleFlags = track.currentChunk.samples.map(fragmentSampleFlags);
+
+	let uniqueSampleDurations = new Set(allSampleDurations);
+	let uniqueSampleSizes = new Set(allSampleSizes);
+	let uniqueSampleFlags = new Set(allSampleFlags);
+
+	let firstSampleFlagsPresent = uniqueSampleFlags.size === 2 && allSampleFlags[0] !== allSampleFlags[1];
+	let sampleDurationPresent = uniqueSampleDurations.size > 1;
+	let sampleSizePresent = uniqueSampleSizes.size > 1;
+	let sampleFlagsPresent = !firstSampleFlagsPresent && uniqueSampleFlags.size > 1;
+
+	let flags = 0;
+	flags |= 0x0001; // Data offset present
+	flags |= 0x0004 * +firstSampleFlagsPresent; // First sample flags present
+	flags |= 0x0100 * +sampleDurationPresent; // Sample duration present
+	flags |= 0x0200 * +sampleSizePresent; // Sample size present
+	flags |= 0x0400 * +sampleFlagsPresent; // Sample flags present
+
+	return fullBox('trun', 0, flags, [
+		u32(track.currentChunk.samples.length), // Sample count
+		u32(track.currentChunk.offset - track.currentChunk.moofOffset || 0), // Data offset
+		firstSampleFlagsPresent ? u32(allSampleFlags[0]) : [],
+		track.currentChunk.samples.map((_, i) => [
+			sampleDurationPresent ? u32(allSampleDurations[i]) : [], // Sample duration
+			sampleSizePresent ? u32(allSampleSizes[i]) : [], // Sample size
+			sampleFlagsPresent ? u32(allSampleFlags[i]) : [] // Sample flags
+		])
+	]);
+};
+
+/**
+ * Movie Fragment Random Access Box: For each track, provides pointers to sync samples within the file
+ * for random access.
+ */
+export const mfra = (tracks: Track[]) => {
+	return box('mfra', null, [
+		...tracks.map(tfra),
+		mfro()
+	]);
+};
+
+/** Track Fragment Random Access Box: Provides pointers to sync samples within the file for random access. */
+export const tfra = (track: Track, trackIndex: number) => {
+	let version = 1; // Using this version allows us to use 64-bit time and offset values
+
+	return fullBox('tfra', version, 0, [
+		u32(track.id), // Track ID
+		u32(0b111111), // This specifies that traf number, trun number and sample number are 32-bit ints
+		u32(track.finalizedChunks.length), // Number of entries
+		track.finalizedChunks.map(chunk => [
+			u64(intoTimescale(chunk.startTimestamp, track.timescale)), // Time
+			u64(chunk.moofOffset), // moof offset
+			u32(trackIndex + 1), // traf number
+			u32(1), // trun number
+			u32(1) // Sample number
+		])
+	]);
+};
+
+/**
+ * Movie Fragment Random Access Offset Box: Provides the size of the enclosing mfra box. This box can be used by readers
+ * to quickly locate the mfra box by searching from the end of the file.
+ */
+export const mfro = () => {
+	return fullBox('mfro', 0, 0, [
+		// This value needs to be overwritten manually from the outside, where the actual size of the enclosing mfra box
+		// is known
+		u32(0) // Size
 	]);
 };
 

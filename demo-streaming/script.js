@@ -1,5 +1,6 @@
 const canvas = document.querySelector('canvas');
 const ctx = canvas.getContext('2d', { desynchronized: true });
+const streamPreview = document.querySelector('#stream-preview');
 const startRecordingButton = document.querySelector('#start-recording');
 const endRecordingButton = document.querySelector('#end-recording');
 const recordingStatus = document.querySelector('#recording-status');
@@ -37,13 +38,24 @@ const startRecording = async () => {
 		console.warn('AudioEncoder not available; no need to acquire a user media audio track.');
 	}
 
+	let mediaSource = new MediaSource();
+	streamPreview.src = URL.createObjectURL(mediaSource);
+	streamPreview.play();
+
+	await new Promise(resolve => mediaSource.onsourceopen = resolve);
+
+	// We'll append ArrayBuffers to this as the muxer starts to spit out chunks
+	let sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="avc1.64001F, mp4a.40.2"');
+
 	endRecordingButton.style.display = 'block';
 
 	let audioSampleRate = audioTrack?.getCapabilities().sampleRate.max;
 
 	// Create an MP4 muxer with a video track and maybe an audio track
 	muxer = new Mp4Muxer.Muxer({
-		target: new Mp4Muxer.ArrayBufferTarget(),
+		target: new Mp4Muxer.StreamTarget({
+			onData: buffer => sourceBuffer.appendBuffer(buffer)
+		}),
 
 		video: {
 			codec: 'avc',
@@ -58,7 +70,7 @@ const startRecording = async () => {
 
 		// Puts metadata to the start of the file. Since we're using ArrayBufferTarget anyway, this makes no difference
 		// to memory footprint.
-		fastStart: 'in-memory',
+		fastStart: 'fragmented',
 
 		// Because we're directly pumping a MediaStreamTrack's data into it, which doesn't start at timestamp = 0
 		firstTimestampBehavior: 'offset'
@@ -69,7 +81,7 @@ const startRecording = async () => {
 		error: e => console.error(e)
 	});
 	videoEncoder.configure({
-		codec: 'avc1.42001f',
+		codec: 'avc1.64001F',
 		width: canvas.width,
 		height: canvas.height,
 		bitrate: 1e6
@@ -118,8 +130,8 @@ const encodeVideoFrame = () => {
 	});
 	framesGenerated++;
 
-	// Ensure a video key frame at least every 5 seconds for good scrubbing
-	let needsKeyFrame = elapsedTime - lastKeyFrame >= 5000;
+	// Ensure a video key frame at least every 0.5 seconds
+	let needsKeyFrame = elapsedTime - lastKeyFrame >= 500;
 	if (needsKeyFrame) lastKeyFrame = elapsedTime;
 
 	videoEncoder.encode(frame, { keyFrame: needsKeyFrame });
@@ -141,9 +153,6 @@ const endRecording = async () => {
 	await audioEncoder?.flush();
 	muxer.finalize();
 
-	let buffer = muxer.target.buffer;
-	downloadBlob(new Blob([buffer]));
-
 	videoEncoder = null;
 	audioEncoder = null;
 	muxer = null;
@@ -153,17 +162,6 @@ const endRecording = async () => {
 	startRecordingButton.style.display = 'block';
 };
 endRecordingButton.addEventListener('click', endRecording);
-
-const downloadBlob = (blob) => {
-	let url = window.URL.createObjectURL(blob);
-	let a = document.createElement('a');
-	a.style.display = 'none';
-	a.href = url;
-	a.download = 'davinci.mp4';
-	document.body.appendChild(a);
-	a.click();
-	window.URL.revokeObjectURL(url);
-};
 
 /** CANVAS DRAWING STUFF */
 

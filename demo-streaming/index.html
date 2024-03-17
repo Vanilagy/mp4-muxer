@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+	<head>
+		<meta charset="UTF-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<title>MP4 muxer streaming demo</title>
+		<link rel="stylesheet" href="./style.css">
+		<script src="../build/mp4-muxer.js" defer></script>
+		<script src="./script.js" defer></script>
+	</head>
+	<body>
+		<main>
+			<h1>MP4 muxer streaming demo - draw something!</h1>
+			<h2>The live canvas state and your microphone input will be recorded,<br> muxed into a fragmented MP4 stream and shown live in the &lt;video&gt; element.</h2>
+			<div id="controls">
+				<button id="start-recording">Start recording</button>
+				<button id="end-recording" style="display: none;">End recording</button>
+			</div>
+			<div id="center">
+				<canvas width="640" height="480"></canvas>
+				<video id="stream-preview" width="640" height="360" controls></video>
+			</div>
+			<p id="recording-status"></p>
+		</main>
+	</body>
+</html>

@@ -5,10 +5,13 @@
 [![](https://img.shields.io/npm/dm/mp4-muxer)](https://www.npmjs.com/package/mp4-muxer)
 
 The WebCodecs API provides low-level access to media codecs, but provides no way of actually packaging (multiplexing)
-the encoded media into a playable file. This project implements an MP4 multiplexer in pure TypeScript which is
-high-quality, fast and tiny, and supports both video and audio.
+the encoded media into a playable file. This project implements an MP4 multiplexer in pure TypeScript, which is
+high-quality, fast and tiny, and supports both video and audio as well as various internal layouts such as Fast Start or
+fragmented MP4.
 
 [Demo: Muxing into a file](https://vanilagy.github.io/mp4-muxer/demo/)
+
+[Demo: Live streaming](https://vanilagy.github.io/mp4-muxer/demo-streaming)
 
 > **Note:** If you're looking to create **WebM** files, check out [webm-muxer](https://github.com/Vanilagy/webm-muxer),
 the sister library to mp4-muxer.
@@ -103,6 +106,7 @@ interface MuxerOptions {
     fastStart:
         | false
         | 'in-memory'
+        | 'fragmented'
         | { expectedVideoChunks?: number, expectedAudioChunks?: number }
 
     firstTimestampBehavior?: 'strict' | 'offset'
@@ -131,31 +135,32 @@ This option specifies where the data created by the muxer will be written. The o
     useful if you want to stream the data, e.g. pipe it somewhere else. The constructor has the following signature:
 
     ```ts
-    constructor(
-        onData: (data: Uint8Array, position: number) => void,
-        onDone?: () => void,
-        options?: { chunked?: boolean, chunkSize?: number }
-    );
+    constructor(options: {
+		onData?: (data: Uint8Array, position: number) => void,
+		chunked?: boolean,
+		chunkSize?: number
+	});
     ```
 
-    The `position` argument specifies the offset in bytes at which the data has to be written. Since the data written by
-    the muxer is not entirely sequential, **make sure to respect this argument**.
+    `onData` is called for each new chunk of available data. The `position` argument specifies the offset in bytes at
+    which the data has to be written. Since the data written by the muxer is not always sequential, **make sure to
+    respect this argument**.
     
-    When using `chunked: true` in the options, data created by the muxer will first be accumulated and only written out
-    once it has reached sufficient size. This is useful for reducing the total amount of writes, at the cost of
-    latency. It using a default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the
-    desired byte length.
-    
-    Note that this target is **not** intended for *live-streaming*, i.e. playback before muxing has finished.
+    When using `chunked: true`, data created by the muxer will first be accumulated and only written out once it has
+    reached sufficient size. This is useful for reducing the total amount of writes, at the cost of latency. It using a
+    default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the desired byte length.
 
+    If you want to use this target for *live-streaming*, i.e. playback before muxing has finished, you also need to set
+    `fastStart: 'fragmented'`.
+
+    Usage example:
     ```js
     import { Muxer, StreamTarget } from 'mp4-muxer';
 
     let muxer = new Muxer({
-        target: new StreamTarget(
-            (data, position) => { /* Do something with the data */ },
-            () => { /* Muxing has finished */ }
-        ),
+        target: new StreamTarget({
+            onData: (data, position) => { /* Do something with the data */ }
+        }),
         fastStart: false,
         // ...
     });
@@ -196,17 +201,23 @@ This option specifies where the data created by the muxer will be written. The o
     await fileStream.close(); // Make sure to close the stream
     ```
 #### `fastStart` (required)
-By default, MP4 metadata is stored at the end of the file in the `moov` box - this makes writing the file faster and
-easier. However, placing this `moov` box at the _start_ of the file instead (known as "Fast Start") provides certain
-benefits: The file becomes easier to stream over the web without range requests, and sites like YouTube can start
-processing the video while it's uploading. This library provides full control over the placement of the `moov` box by
+By default, MP4 metadata (track info, sample timing, etc.) is stored at the end of the file - this makes writing the
+file faster and easier. However, placing this metadata at the _start_ of the file instead (known as "Fast Start")
+provides certain benefits: The file becomes easier to stream over the web without range requests, and sites like YouTube
+can start processing the video while it's uploading. This library provides full control over the placement of metadata
 setting `fastStart` to one of these options:
-- `false`: Disables Fast Start, placing metadata at the end of the file. This option is the fastest and uses the least
-    memory. This option is recommended for large, unbounded files that are streamed directly to disk.
+- `false`: Disables Fast Start, placing all metadata at the end of the file. This option is the fastest and uses the
+    least memory. This option is recommended for large, unbounded files that are streamed directly to disk.
 - `'in-memory'`: Produces a file with Fast Start by keeping all media chunks in memory until the file is finalized. This
     option produces the most compact output possible at the cost of a more expensive finalization step and higher memory
-    requirements. You should _always_ use this option when using `ArrayBufferTarget` as it will result in a
-    higher-quality output with no change in memory footprint.
+    requirements. This is the preferred option when using `ArrayBufferTarget` as it will result in a higher-quality
+    output with no change in memory footprint.
+- `'fragmented'`: Produces a _fragmented MP4 (fMP4)_ file, evenly placing sample metadata throughout the file by grouping
+    it into "fragments" (short sections of media), while placing general metadata at the beginning of the file.
+    Fragmented files are ideal for streaming, as they are optimized for random access with minimal to no seeking.
+    Furthermore, they remain lightweight to create no matter how large the file becomes, as they don't require media to
+    be kept in memory for very long. While fragmented files are not as widely supported as regular MP4 files, this
+    option provides powerful benefits with very little downsides. Further details [here](#fragmented-mp4-notes).
 - `object`: Produces a file with Fast Start by reserving space for metadata when muxing begins. To know
     how many bytes need to be reserved to be safe, you'll have to provide the following data:
     ```ts
@@ -298,11 +309,32 @@ await fileStream.close();
 MP4 files support variable frame rate, however some players (such as QuickTime) have been observed not to behave well
 when the timestamps are irregular. Therefore, whenever possible, try aiming for a fixed frame rate.
 
+### Additional notes about fragmented MP4 files
+By breaking up the media and related metadata into small fragments, fMP4 files optimize for random access and are ideal
+for streaming, while remaining cheap to write even for long files. However, you should keep these things in mind:
+- **Media chunk buffering:**
+    When muxing a file with a video **and** an audio track, the muxer needs to wait for the chunks from _both_ media
+    to finalize any given fragment. In other words, it must buffer chunks of one medium if the other medium has not yet
+    encoded chunks up to that timestamp. For example, should you first encode all your video frames and then encode the
+    audio afterward, the multiplexer will have to hold all those video frames in memory until the audio chunks start
+    coming in. This might lead to memory exhaustion should your video be very long. When there is only one media track,
+    this issue does not arise. So, when muxing a multimedia file, make sure it is somewhat limited in size or the chunks
+    are encoded in a somewhat interleaved way (like is the case for live media). This will keep memory usage at a
+    constant low.
+- **Video key frame frequency:**
+    Every track's first sample in a fragment must be a key frame in order to be able to play said fragment without the
+    knowledge of previous ones. However, this means that the muxer needs to wait for a video key frame to begin a new
+    fragment. If these key frames are too infrequent, fragments become too large, harming random access. Therefore,
+    every 5–10 seconds, you should force a video key frame like so:
+    ```js
+    videoEncoder.encode(frame, { keyFrame: true });
+    ```
+
 ## Implementation & development
 MP4 files are based on the ISO Base Media Format, which structures its files as a hierarchy of boxes (or atoms). The
 standards used to implement this library were
 [ISO/IEC 14496-1](http://netmedia.zju.edu.cn/multimedia2013/mpeg-4/ISO%20IEC%2014496-1%20MPEG-4%20System%20Standard.pdf),
-[ISO/IEC 14496-12](https://web.archive.org/web/20180219054429/http://l.web.umkc.edu/lizhu/teaching/2016sp.video-communication/ref/mp4.pdf)
+[ISO/IEC 14496-12](https://web.archive.org/web/20231123030701/https://b.goeswhere.com/ISO_IEC_14496-12_2015.pdf)
 and
 [ISO/IEC 14496-14](https://github.com/OpenAnsible/rust-mp4/raw/master/docs/ISO_IEC_14496-14_2003-11-15.pdf).
 Additionally, the
