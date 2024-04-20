@@ -136,10 +136,10 @@ This option specifies where the data created by the muxer will be written. The o
 
     ```ts
     constructor(options: {
-		onData?: (data: Uint8Array, position: number) => void,
-		chunked?: boolean,
-		chunkSize?: number
-	});
+        onData?: (data: Uint8Array, position: number) => void,
+        chunked?: boolean,
+        chunkSize?: number
+    });
     ```
 
     `onData` is called for each new chunk of available data. The `position` argument specifies the offset in bytes at

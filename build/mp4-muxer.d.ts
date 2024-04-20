@@ -200,5 +200,5 @@ declare global {
 	let Mp4Muxer: typeof Mp4Muxer;
 }
 
-export { Muxer, ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget };
+export { Muxer, MuxerOptions, ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget };
 export as namespace Mp4Muxer;
