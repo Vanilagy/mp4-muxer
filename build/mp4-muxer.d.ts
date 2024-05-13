@@ -1,3 +1,5 @@
+declare type TransformationMatrix = [number, number, number, number, number, number, number, number, number];
+
 declare interface VideoOptions {
 	/**
 	 * The codec of the encoded video chunks.
@@ -12,9 +14,9 @@ declare interface VideoOptions {
 	 */
 	height: number,
 	/**
-	 * The clockwise rotation of the video in degrees.
+	 * The clockwise rotation of the video in degrees or a transformation matrix.
 	 */
-	rotation?: 0 | 90 | 180 | 270
+	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
 }
 
 declare interface AudioOptions {
@@ -200,5 +202,12 @@ declare global {
 	let Mp4Muxer: typeof Mp4Muxer;
 }
 
-export { Muxer, MuxerOptions, ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget };
+export {
+	Muxer,
+	MuxerOptions,
+	ArrayBufferTarget,
+	StreamTarget,
+	FileSystemWritableFileStreamTarget,
+	TransformationMatrix
+};
 export as namespace Mp4Muxer;

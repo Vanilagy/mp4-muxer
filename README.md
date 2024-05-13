@@ -94,7 +94,7 @@ interface MuxerOptions {
         codec: 'avc' | 'hevc' | 'vp9' | 'av1',
         width: number,
         height: number,
-        rotation?: 0 | 90 | 180 | 270 // Adds rotation metadata to the file
+        rotation?: 0 | 90 | 180 | 270 | TransformationMatrix // Adds rotation metadata to the file
     },
 
     audio?: {

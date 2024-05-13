@@ -1,5 +1,5 @@
 import { Box, free, ftyp, mdat, mfra, moof, moov } from './box';
-import { deepClone, intoTimescale, last } from './misc';
+import { deepClone, intoTimescale, last, TransformationMatrix } from './misc';
 import { ArrayBufferTarget, FileSystemWritableFileStreamTarget, StreamTarget, Target } from './target';
 import {
 	Writer,
@@ -19,7 +19,7 @@ interface VideoOptions {
 	codec: typeof SUPPORTED_VIDEO_CODECS[number],
 	width: number,
 	height: number,
-	rotation?: 0 | 90 | 180 | 270
+	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
 }
 
 interface AudioOptions {
@@ -46,7 +46,7 @@ export interface Track {
 		codec: VideoOptions['codec'],
 		width: number,
 		height: number,
-		rotation: 0 | 90 | 180 | 270
+		rotation: 0 | 90 | 180 | 270 | TransformationMatrix
 	} | {
 		type: 'audio',
 		codec: AudioOptions['codec'],
@@ -148,8 +148,14 @@ export class Muxer<T extends Target> {
 				throw new Error(`Unsupported video codec: ${options.video.codec}`);
 			}
 
-			if (options.video.rotation !== undefined && ![0, 90, 180, 270].includes(options.video.rotation)) {
-				throw new Error(`Invalid video rotation: ${options.video.rotation}. Has to be 0, 90, 180 or 270.`);
+			const videoRotation = options.video.rotation;
+			if (typeof videoRotation === 'number' && ![0, 90, 180, 270].includes(videoRotation)) {
+				throw new Error(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
+			} else if (
+				Array.isArray(videoRotation) &&
+				(videoRotation.length !== 9 || videoRotation.some(value => typeof value !== 'number'))
+			) {
+				throw new Error(`Invalid video transformation matrix: ${videoRotation.join()}`);
 			}
 		}
 

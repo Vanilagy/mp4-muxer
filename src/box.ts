@@ -22,7 +22,8 @@ import {
 	IDENTITY_MATRIX,
 	matrixToBytes,
 	rotationMatrix,
-	isU32
+	isU32,
+	TransformationMatrix
 } from './misc';
 
 export interface Box {
@@ -156,6 +157,13 @@ export const tkhd = (
 	let needsU64 = !isU32(creationTime) || !isU32(durationInGlobalTimescale);
 	let u32OrU64 = needsU64 ? u64 : u32;
 
+	let matrix: TransformationMatrix;
+	if (track.info.type === 'video') {
+		matrix = typeof track.info.rotation === 'number' ? rotationMatrix(track.info.rotation) : track.info.rotation;
+	} else {
+		matrix = IDENTITY_MATRIX;
+	}
+
 	return fullBox('tkhd', +needsU64, 3, [
 		u32OrU64(creationTime), // Creation time
 		u32OrU64(creationTime), // Modification time
@@ -167,7 +175,7 @@ export const tkhd = (
 		u16(0), // Alternate group
 		fixed_8_8(track.info.type === 'audio' ? 1 : 0), // Volume
 		u16(0), // Reserved
-		matrixToBytes(rotationMatrix(track.info.type === 'video' ? track.info.rotation : 0)), // Matrix
+		matrixToBytes(matrix), // Matrix
 		fixed_16_16(track.info.type === 'video' ? track.info.width : 0), // Track width
 		fixed_16_16(track.info.type === 'video' ? track.info.height : 0) // Track height
 	]);
