@@ -94,7 +94,9 @@ interface MuxerOptions {
         codec: 'avc' | 'hevc' | 'vp9' | 'av1',
         width: number,
         height: number,
-        rotation?: 0 | 90 | 180 | 270 | TransformationMatrix // Adds rotation metadata to the file
+
+        // Adds rotation metadata to the file
+        rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
     },
 
     audio?: {
@@ -212,8 +214,8 @@ setting `fastStart` to one of these options:
     option produces the most compact output possible at the cost of a more expensive finalization step and higher memory
     requirements. This is the preferred option when using `ArrayBufferTarget` as it will result in a higher-quality
     output with no change in memory footprint.
-- `'fragmented'`: Produces a _fragmented MP4 (fMP4)_ file, evenly placing sample metadata throughout the file by grouping
-    it into "fragments" (short sections of media), while placing general metadata at the beginning of the file.
+- `'fragmented'`: Produces a _fragmented MP4 (fMP4)_ file, evenly placing sample metadata throughout the file by
+    grouping it into "fragments" (short sections of media), while placing general metadata at the beginning of the file.
     Fragmented files are ideal for streaming, as they are optimized for random access with minimal to no seeking.
     Furthermore, they remain lightweight to create no matter how large the file becomes, as they don't require media to
     be kept in memory for very long. While fragmented files are not as widely supported as regular MP4 files, this

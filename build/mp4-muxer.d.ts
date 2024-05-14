@@ -14,7 +14,7 @@ declare interface VideoOptions {
 	 */
 	height: number,
 	/**
-	 * The clockwise rotation of the video in degrees or a transformation matrix.
+	 * The clockwise rotation of the video in degrees, or a transformation matrix.
 	 */
 	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
 }
