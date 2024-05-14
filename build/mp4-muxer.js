@@ -237,6 +237,12 @@ var Mp4Muxer = (() => {
     );
     let needsU64 = !isU32(creationTime) || !isU32(durationInGlobalTimescale);
     let u32OrU64 = needsU64 ? u64 : u32;
+    let matrix;
+    if (track.info.type === "video") {
+      matrix = typeof track.info.rotation === "number" ? rotationMatrix(track.info.rotation) : track.info.rotation;
+    } else {
+      matrix = IDENTITY_MATRIX;
+    }
     return fullBox("tkhd", +needsU64, 3, [
       u32OrU64(creationTime),
       // Creation time
@@ -258,7 +264,7 @@ var Mp4Muxer = (() => {
       // Volume
       u16(0),
       // Reserved
-      matrixToBytes(rotationMatrix(track.info.type === "video" ? track.info.rotation : 0)),
+      matrixToBytes(matrix),
       // Matrix
       fixed_16_16(track.info.type === "video" ? track.info.width : 0),
       // Track width
@@ -1231,8 +1237,11 @@ var Mp4Muxer = (() => {
       if (!SUPPORTED_VIDEO_CODECS2.includes(options.video.codec)) {
         throw new Error(`Unsupported video codec: ${options.video.codec}`);
       }
-      if (options.video.rotation !== void 0 && ![0, 90, 180, 270].includes(options.video.rotation)) {
-        throw new Error(`Invalid video rotation: ${options.video.rotation}. Has to be 0, 90, 180 or 270.`);
+      const videoRotation = options.video.rotation;
+      if (typeof videoRotation === "number" && ![0, 90, 180, 270].includes(videoRotation)) {
+        throw new Error(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
+      } else if (Array.isArray(videoRotation) && (videoRotation.length !== 9 || videoRotation.some((value) => typeof value !== "number"))) {
+        throw new Error(`Invalid video transformation matrix: ${videoRotation.join()}`);
       }
     }
     if (options.audio && !SUPPORTED_AUDIO_CODECS2.includes(options.audio.codec)) {

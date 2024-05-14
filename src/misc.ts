@@ -61,7 +61,9 @@ export const intoTimescale = (timeInSeconds: number, timescale: number, round = 
 	return round ? Math.round(value) : value;
 };
 
-export const rotationMatrix = (rotationInDegrees: number) => {
+export type TransformationMatrix = [number, number, number, number, number, number, number, number, number];
+
+export const rotationMatrix = (rotationInDegrees: number): TransformationMatrix => {
 	let theta = rotationInDegrees * (Math.PI / 180);
 	let cosTheta = Math.cos(theta);
 	let sinTheta = Math.sin(theta);
@@ -76,7 +78,7 @@ export const rotationMatrix = (rotationInDegrees: number) => {
 
 export const IDENTITY_MATRIX = rotationMatrix(0);
 
-export const matrixToBytes = (matrix: number[]) => {
+export const matrixToBytes = (matrix: TransformationMatrix) => {
 	return [
 		fixed_16_16(matrix[0]), fixed_16_16(matrix[1]), fixed_2_30(matrix[2]),
 		fixed_16_16(matrix[3]), fixed_16_16(matrix[4]), fixed_2_30(matrix[5]),
