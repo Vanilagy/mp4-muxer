@@ -1459,15 +1459,11 @@ var Mp4Muxer = (() => {
           });
         }
         const lastCTOTableEnry = last(track.compositionTimeOffsetTable);
-        if (lastCTOTableEnry.sampleCount === 1) {
-          lastCTOTableEnry.sampleCTO = sampleCTO;
-          lastCTOTableEnry.sampleCount++;
-        } else if (lastCTOTableEnry.sampleCTO === sampleCTO) {
+        if (lastCTOTableEnry.sampleCTO === sampleCTO) {
           lastCTOTableEnry.sampleCount++;
         } else {
-          lastCTOTableEnry.sampleCount--;
           track.compositionTimeOffsetTable.push({
-            sampleCount: 2,
+            sampleCount: 1,
             sampleCTO
           });
         }

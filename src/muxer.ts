@@ -498,19 +498,13 @@ export class Muxer<T extends Target> {
 				}
 
 				const lastCTOTableEnry = last(track.compositionTimeOffsetTable);
-				if (lastCTOTableEnry.sampleCount === 1) {
-					// If we hit this case, we're the second sample
-					lastCTOTableEnry.sampleCTO = sampleCTO;
-					lastCTOTableEnry.sampleCount++;
-				} else if (lastCTOTableEnry.sampleCTO === sampleCTO) {
+				if (lastCTOTableEnry.sampleCTO === sampleCTO) {
 					// Simply increment the count
 					lastCTOTableEnry.sampleCount++;
 				} else {
-					// The CTO has changed, subtract one from the previous run and create a new run with the
-					// new CTO
-					lastCTOTableEnry.sampleCount--;
+					// The CTO has changed, so create a new entry with the new CTO
 					track.compositionTimeOffsetTable.push({
-						sampleCount: 2,
+						sampleCount: 1,
 						sampleCTO: sampleCTO
 					});
 				}
