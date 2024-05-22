@@ -10,6 +10,7 @@ import {
 import {
 	ascii,
 	i16,
+	i32,
 	intoTimescale,
 	last,
 	u16,
@@ -111,7 +112,7 @@ export const mvhd = (
 ) => {
 	let duration = intoTimescale(Math.max(
 		0,
-		...tracks.filter(x => x.samples.length > 0).map(x => last(x.samples).timestamp + last(x.samples).duration)
+		...tracks.filter(x => x.samples.length > 0).map(x => last(x.samples).pts + last(x.samples).duration)
 	), GLOBAL_TIMESCALE);
 	let nextTrackId = Math.max(...tracks.map(x => x.id)) + 1;
 
@@ -150,7 +151,7 @@ export const tkhd = (
 ) => {
 	let lastSample = last(track.samples);
 	let durationInGlobalTimescale = intoTimescale(
-		lastSample ? lastSample.timestamp + lastSample.duration : 0,
+		lastSample ? lastSample.pts + lastSample.duration : 0,
 		GLOBAL_TIMESCALE
 	);
 
@@ -195,7 +196,7 @@ export const mdhd = (
 ) => {
 	let lastSample = last(track.samples);
 	let localDuration = intoTimescale(
-		lastSample ? lastSample.timestamp + lastSample.duration : 0,
+		lastSample ? lastSample.pts + lastSample.duration : 0,
 		track.timescale
 	);
 
@@ -275,7 +276,8 @@ export const stbl = (track: Track) => box('stbl', null, [
 	stss(track),
 	stsc(track),
 	stsz(track),
-	stco(track)
+	stco(track),
+	ctts(track)
 ]);
 
 /**
@@ -448,6 +450,19 @@ export const stco = (track: Track) => {
 	]);
 };
 
+/** Composition Time to Sample Box: Stores composition time offset information (PTS-DTS) for a
+ * media's samples. The table is compact, meaning that consecutive samples with the same time
+ * composition time offset will be grouped. */
+export const ctts = (track: Track) => {
+	return fullBox('ctts', 0, 0, [
+		u32(track.compositionTimeOffsetTable.length), // Number of entries
+		track.compositionTimeOffsetTable.map(x => [ // Time-to-sample table
+			u32(x.sampleCount), // Sample count
+			u32(x.sampleCTO) // Sample offset
+		])
+	]);
+};
+
 /**
  * Movie Extends Box: This box signals to readers that the file is fragmented. Contains a single Track Extends Box
  * for each track in the movie.
@@ -552,15 +567,18 @@ export const trun = (track: Track) => {
 	let allSampleDurations = track.currentChunk.samples.map(x => x.timescaleUnitsToNextSample);
 	let allSampleSizes = track.currentChunk.samples.map(x => x.size);
 	let allSampleFlags = track.currentChunk.samples.map(fragmentSampleFlags);
+	let allSampleCTOs = track.currentChunk.samples.map(x => intoTimescale(x.pts - x.dts, track.timescale));
 
 	let uniqueSampleDurations = new Set(allSampleDurations);
 	let uniqueSampleSizes = new Set(allSampleSizes);
 	let uniqueSampleFlags = new Set(allSampleFlags);
+	let uniqueSampleCTOs = new Set(allSampleCTOs);
 
 	let firstSampleFlagsPresent = uniqueSampleFlags.size === 2 && allSampleFlags[0] !== allSampleFlags[1];
 	let sampleDurationPresent = uniqueSampleDurations.size > 1;
 	let sampleSizePresent = uniqueSampleSizes.size > 1;
 	let sampleFlagsPresent = !firstSampleFlagsPresent && uniqueSampleFlags.size > 1;
+	let sampleCompositionTimeOffsetsPresent = uniqueSampleCTOs.size > 1 || [...uniqueSampleCTOs].some(x => x !== 0);
 
 	let flags = 0;
 	flags |= 0x0001; // Data offset present
@@ -568,15 +586,17 @@ export const trun = (track: Track) => {
 	flags |= 0x0100 * +sampleDurationPresent; // Sample duration present
 	flags |= 0x0200 * +sampleSizePresent; // Sample size present
 	flags |= 0x0400 * +sampleFlagsPresent; // Sample flags present
+	flags |= 0x0800 * +sampleCompositionTimeOffsetsPresent; // Sample composition time offsets present
 
-	return fullBox('trun', 0, flags, [
+	return fullBox('trun', 1, flags, [
 		u32(track.currentChunk.samples.length), // Sample count
 		u32(track.currentChunk.offset - track.currentChunk.moofOffset || 0), // Data offset
 		firstSampleFlagsPresent ? u32(allSampleFlags[0]) : [],
 		track.currentChunk.samples.map((_, i) => [
 			sampleDurationPresent ? u32(allSampleDurations[i]) : [], // Sample duration
 			sampleSizePresent ? u32(allSampleSizes[i]) : [], // Sample size
-			sampleFlagsPresent ? u32(allSampleFlags[i]) : [] // Sample flags
+			sampleFlagsPresent ? u32(allSampleFlags[i]) : [], // Sample flags
+			sampleCompositionTimeOffsetsPresent ? i32(allSampleCTOs[i]) : [] // Sample composition time offsets
 		])
 	]);
 };

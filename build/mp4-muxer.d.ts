@@ -144,10 +144,17 @@ declare class Muxer<T extends Target> {
 	 * Adds a new, encoded video chunk to the MP4 file.
 	 * @param chunk The encoded video chunk. Can be obtained through a `VideoEncoder`.
 	 * @param meta The metadata about the encoded video, also provided by `VideoEncoder`.
-	 * @param timestamp Optionally, the timestamp to use for the video chunk. When not provided, it will use the one
-	 * specified in `chunk`.
+	 * @param timestamp Optionally, the presentation timestamp to use for the video chunk. When not provided, it will
+	 * use the one specified in `chunk`.
+	 * @param compositionTimeOffset Optionally, the composition time offset (i.e. presentation timestamp minus decode
+	 * timestamp) to use for the video chunk. When not provided, it will be zero.
 	 */
-	addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata, timestamp?: number): void;
+	addVideoChunk(
+		chunk: EncodedVideoChunk,
+		meta?: EncodedVideoChunkMetadata,
+		timestamp?: number,
+		compositionTimeOffset?: number
+	): void;
 	/**
 	 * Adds a new, encoded audio chunk to the MP4 file.
 	 * @param chunk The encoded audio chunk. Can be obtained through an `AudioEncoder`.
@@ -163,6 +170,8 @@ declare class Muxer<T extends Target> {
 	 * @param data The raw data of the video chunk.
 	 * @param type Whether the video chunk is a keyframe or delta frame.
 	 * @param timestamp The timestamp of the video chunk.
+	 * @param compositionTimeOffset The composition time offset (i.e. presentation timestamp minus decode timestamp) of
+	 * the video chunk.
 	 * @param duration The duration of the video chunk (typically 0).
 	 * @param meta Optionally, any encoder metadata.
 	 */
@@ -170,6 +179,7 @@ declare class Muxer<T extends Target> {
 		data: Uint8Array,
 		type: 'key' | 'delta',
 		timestamp: number,
+		compositionTimeOffset: number,
 		duration: number,
 		meta?: EncodedVideoChunkMetadata
 	): void;
