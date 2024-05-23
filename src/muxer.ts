@@ -13,7 +13,7 @@ export const GLOBAL_TIMESCALE = 1000;
 export const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc', 'vp9', 'av1'] as const;
 export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus'] as const;
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
-const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset'] as const;
+const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'cross-track-offset'] as const;
 
 interface VideoOptions {
 	codec: typeof SUPPORTED_VIDEO_CODECS[number],
@@ -567,13 +567,28 @@ export class Muxer<T extends Target> {
 				`probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one ` +
 				`is zero, set firstTimestampBehavior: 'offset' in the options.\n`
 			);
-		} else if (this.#options.firstTimestampBehavior === 'offset') {
+		} else if (
+			this.#options.firstTimestampBehavior === 'offset' ||
+			this.#options.firstTimestampBehavior === 'cross-track-offset'
+		) {
 			if (track.firstDTS === undefined) {
 				track.firstDTS = dts;
 			}
 
-			dts -= track.firstDTS;
-			pts -= track.firstDTS;
+			let baseDTS = track.firstDTS;
+			if (this.#options.firstTimestampBehavior === 'cross-track-offset') {
+				// Since each track may have its firstDTS set independently, but the tracks' timestamps come from the
+				// same clock, we should subtract the earlier of the (up to) two tracks' first timestamps to ensure A/V
+				// sync.
+				baseDTS = Math.min(
+					...[this.#audioTrack, this.#videoTrack]
+						.filter(x => (x?.firstDTS ?? null) !== null)
+						.map(x => x.firstDTS)
+				);
+			}
+
+			dts -= baseDTS;
+			pts -= baseDTS;
 		}
 
 		if (dts < track.lastDTS) {

@@ -1063,7 +1063,7 @@ var Mp4Muxer = (() => {
   var SUPPORTED_VIDEO_CODECS2 = ["avc", "hevc", "vp9", "av1"];
   var SUPPORTED_AUDIO_CODECS2 = ["aac", "opus"];
   var TIMESTAMP_OFFSET = 2082844800;
-  var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset"];
+  var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "cross-track-offset"];
   var _options, _writer, _ftypSize, _mdat, _videoTrack, _audioTrack, _creationTime, _finalizedChunks, _nextFragmentNumber, _videoSampleQueue, _audioSampleQueue, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _computeMoovSizeUpperBound, computeMoovSizeUpperBound_fn, _prepareTracks, prepareTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _createSampleForTrack, createSampleForTrack_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _finalizeCurrentChunk, finalizeCurrentChunk_fn, _finalizeFragment, finalizeFragment_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
   var Muxer = class {
     constructor(options) {
@@ -1517,12 +1517,18 @@ var Mp4Muxer = (() => {
 If you want to offset all timestamps of a track such that the first one is zero, set firstTimestampBehavior: 'offset' in the options.
 `
       );
-    } else if (__privateGet(this, _options).firstTimestampBehavior === "offset") {
+    } else if (__privateGet(this, _options).firstTimestampBehavior === "offset" || __privateGet(this, _options).firstTimestampBehavior === "cross-track-offset") {
       if (track.firstDTS === void 0) {
         track.firstDTS = dts;
       }
-      dts -= track.firstDTS;
-      pts -= track.firstDTS;
+      let baseDTS = track.firstDTS;
+      if (__privateGet(this, _options).firstTimestampBehavior === "cross-track-offset") {
+        baseDTS = Math.min(
+          ...[__privateGet(this, _audioTrack), __privateGet(this, _videoTrack)].filter((x) => (x?.firstDTS ?? null) !== null).map((x) => x.firstDTS)
+        );
+      }
+      dts -= baseDTS;
+      pts -= baseDTS;
     }
     if (dts < track.lastDTS) {
       throw new Error(

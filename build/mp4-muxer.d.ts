@@ -88,8 +88,11 @@ declare type MuxerOptions<T extends Target> = {
 	 *
 	 * Use `'offset'` to offset the timestamp of each video track by that track's first chunk's timestamp. This way, it
 	 * starts at 0.
+	 *
+	 * Use `'cross-track-offset'` to offset the timestamp of _both_ tracks by whichever track's first chunk timestamp is
+	 * earliest. This is designed for cases when both tracks' timestamps come from the same clock source.
 	 */
-	firstTimestampBehavior?: 'strict' | 'offset'
+	firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
 };
 
 declare type Target = ArrayBufferTarget | StreamTarget | FileSystemWritableFileStreamTarget;
