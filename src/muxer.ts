@@ -572,17 +572,8 @@ export class Muxer<T extends Target> {
 				track.firstDTS = dts;
 			}
 
-			// Since each track may have its firstDTS set independently, but presumably the tracks' timestamps come from
-			// the same clock, we should subtract the earlier of the (up to) two tracks' first timestamps to ensure A/V
-			// sync.
-			const earliestFirstDTS = Math.min(
-				...[this.#audioTrack, this.#videoTrack]
-					.filter(x => (x?.firstDTS ?? null) !== null)
-					.map(x => x.firstDTS)
-			);
-
-			dts -= earliestFirstDTS;
-			pts -= earliestFirstDTS;
+			dts -= track.firstDTS;
+			pts -= track.firstDTS;
 		}
 
 		if (dts < track.lastDTS) {

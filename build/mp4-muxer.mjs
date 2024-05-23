@@ -1493,11 +1493,8 @@ If you want to offset all timestamps of a track such that the first one is zero,
     if (track.firstDTS === void 0) {
       track.firstDTS = dts;
     }
-    const earliestFirstDTS = Math.min(
-      ...[__privateGet(this, _audioTrack), __privateGet(this, _videoTrack)].filter((x) => (x?.firstDTS ?? null) !== null).map((x) => x.firstDTS)
-    );
-    dts -= earliestFirstDTS;
-    pts -= earliestFirstDTS;
+    dts -= track.firstDTS;
+    pts -= track.firstDTS;
   }
   if (dts < track.lastDTS) {
     throw new Error(
