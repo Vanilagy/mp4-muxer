@@ -276,15 +276,20 @@ export const url = () => fullBox('url ', 0, 1); // Self-reference flag enabled
  * Sample Table Box: Contains information for converting from media time to sample number to sample location. This box
  * also indicates how to interpret the sample (for example, whether to decompress the video data and, if so, how).
  */
-export const stbl = (track: Track) => box('stbl', null, [
-	stsd(track),
-	stts(track),
-	stss(track),
-	stsc(track),
-	stsz(track),
-	stco(track),
-	ctts(track)
-]);
+export const stbl = (track: Track) => {
+	const children = [
+		stsd(track),
+		stts(track),
+		stss(track),
+		stsc(track),
+		stsz(track),
+		stco(track)
+	];
+	if (track.compositionTimeOffsetTable.length > 0) {
+		children.push(ctts(track));
+	}
+	return box('stbl', null, children);
+};
 
 /**
  * Sample Description Box: Stores information that allows you to decode samples in the media. The data stored in the

@@ -361,15 +361,20 @@ var Mp4Muxer = (() => {
     url()
   ]);
   var url = () => fullBox("url ", 0, 1);
-  var stbl = (track) => box("stbl", null, [
-    stsd(track),
-    stts(track),
-    stss(track),
-    stsc(track),
-    stsz(track),
-    stco(track),
-    ctts(track)
-  ]);
+  var stbl = (track) => {
+    const children = [
+      stsd(track),
+      stts(track),
+      stss(track),
+      stsc(track),
+      stsz(track),
+      stco(track)
+    ];
+    if (track.compositionTimeOffsetTable.length > 0) {
+      children.push(ctts(track));
+    }
+    return box("stbl", null, children);
+  };
   var stsd = (track) => fullBox("stsd", 0, 0, [
     u32(1)
     // Entry count
