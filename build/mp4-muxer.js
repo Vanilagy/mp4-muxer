@@ -1541,10 +1541,13 @@ If you want to offset all timestamps of a track such that the first one is zero,
       if (track.firstDecodeTimestamp === void 0) {
         track.firstDecodeTimestamp = decodeTimestamp;
       }
-      let baseDecodeTimestamp = track.firstDecodeTimestamp;
-      if (__privateGet(this, _options).firstTimestampBehavior === "cross-track-offset") {
+      let baseDecodeTimestamp;
+      if (__privateGet(this, _options).firstTimestampBehavior === "offset") {
+        baseDecodeTimestamp = track.firstDecodeTimestamp;
+      } else {
         baseDecodeTimestamp = Math.min(
-          ...[__privateGet(this, _audioTrack), __privateGet(this, _videoTrack)].filter((x) => (x?.firstDecodeTimestamp ?? null) !== null).map((x) => x.firstDecodeTimestamp)
+          __privateGet(this, _videoTrack)?.firstDecodeTimestamp ?? Infinity,
+          __privateGet(this, _audioTrack)?.firstDecodeTimestamp ?? Infinity
         );
       }
       decodeTimestamp -= baseDecodeTimestamp;

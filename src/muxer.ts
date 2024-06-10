@@ -586,15 +586,16 @@ export class Muxer<T extends Target> {
 				track.firstDecodeTimestamp = decodeTimestamp;
 			}
 
-			let baseDecodeTimestamp = track.firstDecodeTimestamp;
-			if (this.#options.firstTimestampBehavior === 'cross-track-offset') {
+			let baseDecodeTimestamp: number;
+			if (this.#options.firstTimestampBehavior === 'offset') {
+				baseDecodeTimestamp = track.firstDecodeTimestamp;
+			} else {
 				// Since each track may have its firstDecodeTimestamp set independently, but the tracks' timestamps come
 				// from the same clock, we should subtract the earlier of the (up to) two tracks' first timestamps to
 				// ensure A/V sync.
 				baseDecodeTimestamp = Math.min(
-					...[this.#audioTrack, this.#videoTrack]
-						.filter(x => (x?.firstDecodeTimestamp ?? null) !== null)
-						.map(x => x.firstDecodeTimestamp)
+					this.#videoTrack?.firstDecodeTimestamp ?? Infinity,
+					this.#audioTrack?.firstDecodeTimestamp ?? Infinity
 				);
 			}
 
