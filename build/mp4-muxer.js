@@ -370,7 +370,8 @@ var Mp4Muxer = (() => {
       stsz(track),
       stco(track)
     ];
-    if (track.compositionTimeOffsetTable.length > 0) {
+    const needsCTTS = track.compositionTimeOffsetTable.length > 1 || track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
+    if (needsCTTS) {
       children.push(ctts(track));
     }
     return box("stbl", null, children);
