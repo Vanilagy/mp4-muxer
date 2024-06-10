@@ -334,7 +334,7 @@ export class Muxer<T extends Target> {
 		sample.copyTo(data);
 
 		this.addVideoChunkRaw(
-			data, sample.type, timestamp ?? sample.timestamp, compositionTimeOffset ?? 0, sample.duration, meta
+			data, sample.type, timestamp ?? sample.timestamp, sample.duration, meta, compositionTimeOffset
 		);
 	}
 
@@ -342,9 +342,9 @@ export class Muxer<T extends Target> {
 		data: Uint8Array,
 		type: 'key' | 'delta',
 		timestamp: number,
-		compositionTimeOffset: number,
 		duration: number,
-		meta?: EncodedVideoChunkMetadata
+		meta?: EncodedVideoChunkMetadata,
+		compositionTimeOffset?: number
 	) {
 		this.#ensureNotFinalized();
 		if (!this.#options.video) throw new Error('No video track declared.');
@@ -359,7 +359,7 @@ export class Muxer<T extends Target> {
 		}
 
 		let videoSample = this.#createSampleForTrack(
-			this.#videoTrack, data, type, timestamp, compositionTimeOffset, duration, meta
+			this.#videoTrack, data, type, timestamp, duration, meta, compositionTimeOffset
 		);
 
 		// Check if we need to interleave the samples in the case of a fragmented file
@@ -407,7 +407,7 @@ export class Muxer<T extends Target> {
 			}).`);
 		}
 
-		let audioSample = this.#createSampleForTrack(this.#audioTrack, data, type, timestamp, 0, duration, meta);
+		let audioSample = this.#createSampleForTrack(this.#audioTrack, data, type, timestamp, duration, meta);
 
 		// Check if we need to interleave the samples in the case of a fragmented file
 		if (this.#options.fastStart === 'fragmented' && this.#videoTrack) {
@@ -433,12 +433,12 @@ export class Muxer<T extends Target> {
 		data: Uint8Array,
 		type: 'key' | 'delta',
 		timestamp: number,
-		compositionTimeOffset: number,
 		duration: number,
-		meta?: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata
+		meta?: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata,
+		compositionTimeOffset?: number
 	) {
 		let ptsInSeconds = timestamp / 1e6;
-		let dtsInSeconds = (timestamp - compositionTimeOffset) / 1e6;
+		let dtsInSeconds = (timestamp - (compositionTimeOffset ?? 0)) / 1e6;
 		let durationInSeconds = duration / 1e6;
 
 		let adjusted = this.#validateTimestamp(ptsInSeconds, dtsInSeconds, track);

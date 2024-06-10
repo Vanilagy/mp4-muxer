@@ -279,9 +279,9 @@ addVideoChunkRaw(
     data: Uint8Array,
     type: 'key' | 'delta',
     timestamp: number, // in microseconds
-    compositionTimeOffset: number, // in microseconds
     duration: number, // in microseconds
-    meta?: EncodedVideoChunkMetadata
+    meta?: EncodedVideoChunkMetadata,
+    compositionTimeOffset: number // in microseconds
 ): void;
 
 addAudioChunkRaw(

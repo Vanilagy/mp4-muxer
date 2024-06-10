@@ -1121,19 +1121,19 @@ var Mp4Muxer = (() => {
         data,
         sample.type,
         timestamp ?? sample.timestamp,
-        compositionTimeOffset ?? 0,
         sample.duration,
-        meta
+        meta,
+        compositionTimeOffset
       );
     }
-    addVideoChunkRaw(data, type, timestamp, compositionTimeOffset, duration, meta) {
+    addVideoChunkRaw(data, type, timestamp, duration, meta, compositionTimeOffset) {
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
       if (!__privateGet(this, _options).video)
         throw new Error("No video track declared.");
       if (typeof __privateGet(this, _options).fastStart === "object" && __privateGet(this, _videoTrack).samples.length === __privateGet(this, _options).fastStart.expectedVideoChunks) {
         throw new Error(`Cannot add more video chunks than specified in 'fastStart' (${__privateGet(this, _options).fastStart.expectedVideoChunks}).`);
       }
-      let videoSample = __privateMethod(this, _createSampleForTrack, createSampleForTrack_fn).call(this, __privateGet(this, _videoTrack), data, type, timestamp, compositionTimeOffset, duration, meta);
+      let videoSample = __privateMethod(this, _createSampleForTrack, createSampleForTrack_fn).call(this, __privateGet(this, _videoTrack), data, type, timestamp, duration, meta, compositionTimeOffset);
       if (__privateGet(this, _options).fastStart === "fragmented" && __privateGet(this, _audioTrack)) {
         while (__privateGet(this, _audioSampleQueue).length > 0 && __privateGet(this, _audioSampleQueue)[0].dts <= videoSample.dts) {
           let audioSample = __privateGet(this, _audioSampleQueue).shift();
@@ -1160,7 +1160,7 @@ var Mp4Muxer = (() => {
       if (typeof __privateGet(this, _options).fastStart === "object" && __privateGet(this, _audioTrack).samples.length === __privateGet(this, _options).fastStart.expectedAudioChunks) {
         throw new Error(`Cannot add more audio chunks than specified in 'fastStart' (${__privateGet(this, _options).fastStart.expectedAudioChunks}).`);
       }
-      let audioSample = __privateMethod(this, _createSampleForTrack, createSampleForTrack_fn).call(this, __privateGet(this, _audioTrack), data, type, timestamp, 0, duration, meta);
+      let audioSample = __privateMethod(this, _createSampleForTrack, createSampleForTrack_fn).call(this, __privateGet(this, _audioTrack), data, type, timestamp, duration, meta);
       if (__privateGet(this, _options).fastStart === "fragmented" && __privateGet(this, _videoTrack)) {
         while (__privateGet(this, _videoSampleQueue).length > 0 && __privateGet(this, _videoSampleQueue)[0].dts <= audioSample.dts) {
           let videoSample = __privateGet(this, _videoSampleQueue).shift();
@@ -1411,9 +1411,9 @@ var Mp4Muxer = (() => {
     return configBytes;
   };
   _createSampleForTrack = new WeakSet();
-  createSampleForTrack_fn = function(track, data, type, timestamp, compositionTimeOffset, duration, meta) {
+  createSampleForTrack_fn = function(track, data, type, timestamp, duration, meta, compositionTimeOffset) {
     let ptsInSeconds = timestamp / 1e6;
-    let dtsInSeconds = (timestamp - compositionTimeOffset) / 1e6;
+    let dtsInSeconds = (timestamp - (compositionTimeOffset ?? 0)) / 1e6;
     let durationInSeconds = duration / 1e6;
     let adjusted = __privateMethod(this, _validateTimestamp, validateTimestamp_fn).call(this, ptsInSeconds, dtsInSeconds, track);
     ptsInSeconds = adjusted.pts;
