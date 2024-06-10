@@ -112,7 +112,9 @@ export const mvhd = (
 ) => {
 	let duration = intoTimescale(Math.max(
 		0,
-		...tracks.filter(x => x.samples.length > 0).map(x => last(x.samples).pts + last(x.samples).duration)
+		...tracks.
+			filter(x => x.samples.length > 0).
+			map(x => last(x.samples).presentationTimestamp + last(x.samples).duration)
 	), GLOBAL_TIMESCALE);
 	let nextTrackId = Math.max(...tracks.map(x => x.id)) + 1;
 
@@ -151,7 +153,7 @@ export const tkhd = (
 ) => {
 	let lastSample = last(track.samples);
 	let durationInGlobalTimescale = intoTimescale(
-		lastSample ? lastSample.pts + lastSample.duration : 0,
+		lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
 		GLOBAL_TIMESCALE
 	);
 
@@ -196,7 +198,7 @@ export const mdhd = (
 ) => {
 	let lastSample = last(track.samples);
 	let localDuration = intoTimescale(
-		lastSample ? lastSample.pts + lastSample.duration : 0,
+		lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
 		track.timescale
 	);
 
@@ -458,7 +460,7 @@ export const ctts = (track: Track) => {
 		u32(track.compositionTimeOffsetTable.length), // Number of entries
 		track.compositionTimeOffsetTable.map(x => [ // Time-to-sample table
 			u32(x.sampleCount), // Sample count
-			u32(x.sampleCTO) // Sample offset
+			u32(x.sampleCompositionTimeOffset) // Sample offset
 		])
 	]);
 };
@@ -567,18 +569,20 @@ export const trun = (track: Track) => {
 	let allSampleDurations = track.currentChunk.samples.map(x => x.timescaleUnitsToNextSample);
 	let allSampleSizes = track.currentChunk.samples.map(x => x.size);
 	let allSampleFlags = track.currentChunk.samples.map(fragmentSampleFlags);
-	let allSampleCTOs = track.currentChunk.samples.map(x => intoTimescale(x.pts - x.dts, track.timescale));
+	let allSampleCompositionTimeOffsets = track.currentChunk.samples.
+		map(x => intoTimescale(x.presentationTimestamp - x.decodeTimestamp, track.timescale));
 
 	let uniqueSampleDurations = new Set(allSampleDurations);
 	let uniqueSampleSizes = new Set(allSampleSizes);
 	let uniqueSampleFlags = new Set(allSampleFlags);
-	let uniqueSampleCTOs = new Set(allSampleCTOs);
+	let uniqueSampleCompositionTimeOffsets = new Set(allSampleCompositionTimeOffsets);
 
 	let firstSampleFlagsPresent = uniqueSampleFlags.size === 2 && allSampleFlags[0] !== allSampleFlags[1];
 	let sampleDurationPresent = uniqueSampleDurations.size > 1;
 	let sampleSizePresent = uniqueSampleSizes.size > 1;
 	let sampleFlagsPresent = !firstSampleFlagsPresent && uniqueSampleFlags.size > 1;
-	let sampleCompositionTimeOffsetsPresent = uniqueSampleCTOs.size > 1 || [...uniqueSampleCTOs].some(x => x !== 0);
+	let sampleCompositionTimeOffsetsPresent =
+		uniqueSampleCompositionTimeOffsets.size > 1 || [...uniqueSampleCompositionTimeOffsets].some(x => x !== 0);
 
 	let flags = 0;
 	flags |= 0x0001; // Data offset present
@@ -596,7 +600,8 @@ export const trun = (track: Track) => {
 			sampleDurationPresent ? u32(allSampleDurations[i]) : [], // Sample duration
 			sampleSizePresent ? u32(allSampleSizes[i]) : [], // Sample size
 			sampleFlagsPresent ? u32(allSampleFlags[i]) : [], // Sample flags
-			sampleCompositionTimeOffsetsPresent ? i32(allSampleCTOs[i]) : [] // Sample composition time offsets
+			// Sample composition time offsets
+			sampleCompositionTimeOffsetsPresent ? i32(allSampleCompositionTimeOffsets[i]) : []
 		])
 	]);
 };
