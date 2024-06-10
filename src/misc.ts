@@ -1,3 +1,5 @@
+import { Sample } from './muxer';
+
 let bytes = new Uint8Array(8);
 let view = new DataView(bytes.buffer);
 
@@ -59,6 +61,16 @@ export const ascii = (text: string, nullTerminated = false) => {
 
 export const last = <T>(arr: T[]) => {
 	return arr && arr[arr.length - 1];
+};
+
+export const lastPresentedSample = (samples: Sample[]): Sample | undefined => {
+	let ret: Sample | undefined = undefined;
+	samples.forEach((s) => {
+		if (!ret || s.presentationTimestamp > ret.presentationTimestamp) {
+			ret = s;
+		}
+	});
+	return ret;
 };
 
 export const intoTimescale = (timeInSeconds: number, timescale: number, round = true) => {

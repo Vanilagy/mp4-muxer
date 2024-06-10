@@ -81,6 +81,15 @@ var ascii = (text, nullTerminated = false) => {
 var last = (arr) => {
   return arr && arr[arr.length - 1];
 };
+var lastPresentedSample = (samples) => {
+  let ret = void 0;
+  samples.forEach((s) => {
+    if (!ret || s.presentationTimestamp > ret.presentationTimestamp) {
+      ret = s;
+    }
+  });
+  return ret;
+};
 var intoTimescale = (timeInSeconds, timescale, round = true) => {
   let value = timeInSeconds * timescale;
   return round ? Math.round(value) : value;
@@ -173,7 +182,10 @@ var moov = (tracks, creationTime, fragmented = false) => box("moov", null, [
 var mvhd = (creationTime, tracks) => {
   let duration = intoTimescale(Math.max(
     0,
-    ...tracks.filter((x) => x.samples.length > 0).map((x) => last(x.samples).presentationTimestamp + last(x.samples).duration)
+    ...tracks.filter((x) => x.samples.length > 0).map((x) => {
+      const lastSample = lastPresentedSample(x.samples);
+      return lastSample.presentationTimestamp + lastSample.duration;
+    })
   ), GLOBAL_TIMESCALE);
   let nextTrackId = Math.max(...tracks.map((x) => x.id)) + 1;
   let needsU64 = !isU32(creationTime) || !isU32(duration);
@@ -206,7 +218,7 @@ var trak = (track, creationTime) => box("trak", null, [
   mdia(track, creationTime)
 ]);
 var tkhd = (track, creationTime) => {
-  let lastSample = last(track.samples);
+  let lastSample = lastPresentedSample(track.samples);
   let durationInGlobalTimescale = intoTimescale(
     lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
     GLOBAL_TIMESCALE
@@ -254,7 +266,7 @@ var mdia = (track, creationTime) => box("mdia", null, [
   minf(track)
 ]);
 var mdhd = (track, creationTime) => {
-  let lastSample = last(track.samples);
+  let lastSample = lastPresentedSample(track.samples);
   let localDuration = intoTimescale(
     lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
     track.timescale

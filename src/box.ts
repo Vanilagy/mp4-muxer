@@ -13,6 +13,7 @@ import {
 	i32,
 	intoTimescale,
 	last,
+	lastPresentedSample,
 	u16,
 	u64,
 	u8,
@@ -114,7 +115,10 @@ export const mvhd = (
 		0,
 		...tracks.
 			filter(x => x.samples.length > 0).
-			map(x => last(x.samples).presentationTimestamp + last(x.samples).duration)
+			map(x => {
+				const lastSample = lastPresentedSample(x.samples);
+				return lastSample.presentationTimestamp + lastSample.duration;
+			})
 	), GLOBAL_TIMESCALE);
 	let nextTrackId = Math.max(...tracks.map(x => x.id)) + 1;
 
@@ -151,7 +155,7 @@ export const tkhd = (
 	track: Track,
 	creationTime: number
 ) => {
-	let lastSample = last(track.samples);
+	let lastSample = lastPresentedSample(track.samples);
 	let durationInGlobalTimescale = intoTimescale(
 		lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
 		GLOBAL_TIMESCALE
@@ -196,7 +200,7 @@ export const mdhd = (
 	track: Track,
 	creationTime: number
 ) => {
-	let lastSample = last(track.samples);
+	let lastSample = lastPresentedSample(track.samples);
 	let localDuration = intoTimescale(
 		lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
 		track.timescale
