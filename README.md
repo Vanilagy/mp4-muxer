@@ -111,7 +111,7 @@ interface MuxerOptions {
         | 'fragmented'
         | { expectedVideoChunks?: number, expectedAudioChunks?: number }
 
-    firstTimestampBehavior?: 'strict' | 'offset'
+    firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
 }
 ```
 Codecs currently supported by this library are AVC/H.264, HEVC/H.265, VP9 and AV1 for video, and AAC and Opus for audio.
@@ -240,8 +240,10 @@ timestamps must start with 0 to ensure proper playback. However, when directly p
 from a MediaTrackStream into the encoder and then the muxer, the timestamps are usually relative to the age of
 the document or the computer's clock, which is typically not what we want. Handling of these timestamps must be
 set explicitly:
-- Use `'offset'` to offset the timestamp of each video track by that track's first chunk's timestamp. This way, it
+- Use `'offset'` to offset the timestamp of each track by that track's first chunk's timestamp. This way, it
 starts at 0.
+- Use `'cross-track-offset'` to offset the timestamp of each track by the _minimum of all tracks' first chunk timestamp_.
+This works like `'offset'`, but should be used when the all tracks use the same timebase.
 
 ### Muxing media chunks
 Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxer using the following methods:
