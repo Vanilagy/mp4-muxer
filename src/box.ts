@@ -277,20 +277,17 @@ export const url = () => fullBox('url ', 0, 1); // Self-reference flag enabled
  * also indicates how to interpret the sample (for example, whether to decompress the video data and, if so, how).
  */
 export const stbl = (track: Track) => {
-	const children = [
+	const needsCTTS = track.compositionTimeOffsetTable.length > 1 ||
+		track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
+	return box('stbl', null, [
 		stsd(track),
 		stts(track),
 		stss(track),
 		stsc(track),
 		stsz(track),
-		stco(track)
-	];
-	const needsCTTS = track.compositionTimeOffsetTable.length > 1 ||
-		track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
-	if (needsCTTS) {
-		children.push(ctts(track));
-	}
-	return box('stbl', null, children);
+		stco(track),
+		needsCTTS ? ctts(track) : null
+	]);
 };
 
 /**

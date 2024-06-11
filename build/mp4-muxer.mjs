@@ -334,19 +334,16 @@ var dref = () => fullBox("dref", 0, 0, [
 ]);
 var url = () => fullBox("url ", 0, 1);
 var stbl = (track) => {
-  const children = [
+  const needsCTTS = track.compositionTimeOffsetTable.length > 1 || track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
+  return box("stbl", null, [
     stsd(track),
     stts(track),
     stss(track),
     stsc(track),
     stsz(track),
-    stco(track)
-  ];
-  const needsCTTS = track.compositionTimeOffsetTable.length > 1 || track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
-  if (needsCTTS) {
-    children.push(ctts(track));
-  }
-  return box("stbl", null, children);
+    stco(track),
+    needsCTTS ? ctts(track) : null
+  ]);
 };
 var stsd = (track) => fullBox("stsd", 0, 0, [
   u32(1)
