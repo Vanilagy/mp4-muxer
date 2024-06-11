@@ -64,13 +64,13 @@ export const last = <T>(arr: T[]) => {
 };
 
 export const lastPresentedSample = (samples: Sample[]): Sample | undefined => {
-	let ret: Sample | undefined = undefined;
-	samples.forEach((s) => {
-		if (!ret || s.presentationTimestamp > ret.presentationTimestamp) {
-			ret = s;
+	let result: Sample | undefined = undefined;
+	for (const s of samples) {
+		if (!result || s.presentationTimestamp > result.presentationTimestamp) {
+			result = s;
 		}
-	});
-	return ret;
+	}
+	return result;
 };
 
 export const intoTimescale = (timeInSeconds: number, timescale: number, round = true) => {

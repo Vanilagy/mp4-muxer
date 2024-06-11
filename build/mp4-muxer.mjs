@@ -82,13 +82,13 @@ var last = (arr) => {
   return arr && arr[arr.length - 1];
 };
 var lastPresentedSample = (samples) => {
-  let ret = void 0;
-  samples.forEach((s) => {
-    if (!ret || s.presentationTimestamp > ret.presentationTimestamp) {
-      ret = s;
+  let result = void 0;
+  for (const s of samples) {
+    if (!result || s.presentationTimestamp > result.presentationTimestamp) {
+      result = s;
     }
-  });
-  return ret;
+  }
+  return result;
 };
 var intoTimescale = (timeInSeconds, timescale, round = true) => {
   let value = timeInSeconds * timescale;
