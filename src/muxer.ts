@@ -13,7 +13,7 @@ export const GLOBAL_TIMESCALE = 1000;
 export const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc', 'vp9', 'av1'] as const;
 export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus'] as const;
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
-const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset'] as const;
+const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'cross-track-offset'] as const;
 
 interface VideoOptions {
 	codec: typeof SUPPORTED_VIDEO_CODECS[number],
@@ -57,10 +57,11 @@ export interface Track {
 	codecPrivate: Uint8Array,
 	samples: Sample[],
 
-	firstTimestamp: number,
-	lastTimestamp: number,
+	firstDecodeTimestamp: number,
+	lastDecodeTimestamp: number,
 
 	timeToSampleTable: { sampleCount: number, sampleDelta: number }[];
+	compositionTimeOffsetTable: { sampleCount: number, sampleCompositionTimeOffset: number }[];
 	lastTimescaleUnits: number,
 	lastSample: Sample,
 
@@ -76,7 +77,8 @@ export type VideoTrack = Track & { info: { type: 'video' } };
 export type AudioTrack = Track & { info: { type: 'audio' } };
 
 export interface Sample {
-	timestamp: number,
+	presentationTimestamp: number,
+	decodeTimestamp: number,
 	duration: number,
 	data: Uint8Array,
 	size: number,
@@ -253,9 +255,10 @@ export class Muxer<T extends Target> {
 				samples: [],
 				finalizedChunks: [],
 				currentChunk: null,
-				firstTimestamp: undefined,
-				lastTimestamp: -1,
+				firstDecodeTimestamp: undefined,
+				lastDecodeTimestamp: -1,
 				timeToSampleTable: [],
+				compositionTimeOffsetTable: [],
 				lastTimescaleUnits: null,
 				lastSample: null,
 				compactlyCodedChunkTable: []
@@ -283,9 +286,10 @@ export class Muxer<T extends Target> {
 				samples: [],
 				finalizedChunks: [],
 				currentChunk: null,
-				firstTimestamp: undefined,
-				lastTimestamp: -1,
+				firstDecodeTimestamp: undefined,
+				lastDecodeTimestamp: -1,
 				timeToSampleTable: [],
+				compositionTimeOffsetTable: [],
 				lastTimescaleUnits: null,
 				lastSample: null,
 				compactlyCodedChunkTable: []
@@ -320,11 +324,18 @@ export class Muxer<T extends Target> {
 		return configBytes;
 	}
 
-	addVideoChunk(sample: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata, timestamp?: number) {
+	addVideoChunk(
+		sample: EncodedVideoChunk,
+		meta?: EncodedVideoChunkMetadata,
+		timestamp?: number,
+		compositionTimeOffset?: number
+	) {
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
-		this.addVideoChunkRaw(data, sample.type, timestamp ?? sample.timestamp, sample.duration, meta);
+		this.addVideoChunkRaw(
+			data, sample.type, timestamp ?? sample.timestamp, sample.duration, meta, compositionTimeOffset
+		);
 	}
 
 	addVideoChunkRaw(
@@ -332,7 +343,8 @@ export class Muxer<T extends Target> {
 		type: 'key' | 'delta',
 		timestamp: number,
 		duration: number,
-		meta?: EncodedVideoChunkMetadata
+		meta?: EncodedVideoChunkMetadata,
+		compositionTimeOffset?: number
 	) {
 		this.#ensureNotFinalized();
 		if (!this.#options.video) throw new Error('No video track declared.');
@@ -346,18 +358,23 @@ export class Muxer<T extends Target> {
 			}).`);
 		}
 
-		let videoSample = this.#createSampleForTrack(this.#videoTrack, data, type, timestamp, duration, meta);
+		let videoSample = this.#createSampleForTrack(
+			this.#videoTrack, data, type, timestamp, duration, meta, compositionTimeOffset
+		);
 
 		// Check if we need to interleave the samples in the case of a fragmented file
 		if (this.#options.fastStart === 'fragmented' && this.#audioTrack) {
 			// Add all audio samples with a timestamp smaller than the incoming video sample
-			while (this.#audioSampleQueue.length > 0 && this.#audioSampleQueue[0].timestamp <= videoSample.timestamp) {
+			while (
+				this.#audioSampleQueue.length > 0 &&
+				this.#audioSampleQueue[0].decodeTimestamp <= videoSample.decodeTimestamp
+			) {
 				let audioSample = this.#audioSampleQueue.shift();
 				this.#addSampleToTrack(this.#audioTrack, audioSample);
 			}
 
 			// Depending on the last audio sample, either add the video sample to the file or enqueue it
-			if (videoSample.timestamp <= this.#audioTrack.lastTimestamp) {
+			if (videoSample.decodeTimestamp <= this.#audioTrack.lastDecodeTimestamp) {
 				this.#addSampleToTrack(this.#videoTrack, videoSample);
 			} else {
 				this.#videoSampleQueue.push(videoSample);
@@ -398,13 +415,16 @@ export class Muxer<T extends Target> {
 		// Check if we need to interleave the samples in the case of a fragmented file
 		if (this.#options.fastStart === 'fragmented' && this.#videoTrack) {
 			// Add all video samples with a timestamp smaller than the incoming audio sample
-			while (this.#videoSampleQueue.length > 0 && this.#videoSampleQueue[0].timestamp <= audioSample.timestamp) {
+			while (
+				this.#videoSampleQueue.length > 0 &&
+				this.#videoSampleQueue[0].decodeTimestamp <= audioSample.decodeTimestamp
+			) {
 				let videoSample = this.#videoSampleQueue.shift();
 				this.#addSampleToTrack(this.#videoTrack, videoSample);
 			}
 
 			// Depending on the last video sample, either add the audio sample to the file or enqueue it
-			if (audioSample.timestamp <= this.#videoTrack.lastTimestamp) {
+			if (audioSample.decodeTimestamp <= this.#videoTrack.lastDecodeTimestamp) {
 				this.#addSampleToTrack(this.#audioTrack, audioSample);
 			} else {
 				this.#audioSampleQueue.push(audioSample);
@@ -420,19 +440,24 @@ export class Muxer<T extends Target> {
 		type: 'key' | 'delta',
 		timestamp: number,
 		duration: number,
-		meta?: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata
+		meta?: EncodedVideoChunkMetadata | EncodedAudioChunkMetadata,
+		compositionTimeOffset?: number
 	) {
-		let timestampInSeconds = timestamp / 1e6;
+		let presentationTimestampInSeconds = timestamp / 1e6;
+		let decodeTimestampInSeconds = (timestamp - (compositionTimeOffset ?? 0)) / 1e6;
 		let durationInSeconds = duration / 1e6;
 
-		timestampInSeconds = this.#validateTimestamp(timestampInSeconds, track);
+		let adjusted = this.#validateTimestamp(presentationTimestampInSeconds, decodeTimestampInSeconds, track);
+		presentationTimestampInSeconds = adjusted.presentationTimestamp;
+		decodeTimestampInSeconds = adjusted.decodeTimestamp;
 
 		if (meta?.decoderConfig?.description) {
 			track.codecPrivate = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
 		}
 
 		let sample: Sample = {
-			timestamp: timestampInSeconds,
+			presentationTimestamp: presentationTimestampInSeconds,
+			decodeTimestamp: decodeTimestampInSeconds,
 			duration: durationInSeconds,
 			data: data,
 			size: data.byteLength,
@@ -452,8 +477,11 @@ export class Muxer<T extends Target> {
 			track.samples.push(sample);
 		}
 
+		const sampleCompositionTimeOffset =
+			intoTimescale(sample.presentationTimestamp - sample.decodeTimestamp, track.timescale);
+
 		if (track.lastTimescaleUnits !== null) {
-			let timescaleUnits = intoTimescale(sample.timestamp, track.timescale, false);
+			let timescaleUnits = intoTimescale(sample.decodeTimestamp, track.timescale, false);
 			let delta = Math.round(timescaleUnits - track.lastTimescaleUnits);
 			track.lastTimescaleUnits += delta;
 			track.lastSample.timescaleUnitsToNextSample = delta;
@@ -475,6 +503,19 @@ export class Muxer<T extends Target> {
 						sampleDelta: delta
 					});
 				}
+
+				const lastCompositionTimeOffsetTableEntry = last(track.compositionTimeOffsetTable);
+				if (lastCompositionTimeOffsetTableEntry.sampleCompositionTimeOffset === sampleCompositionTimeOffset) {
+					// Simply increment the count
+					lastCompositionTimeOffsetTableEntry.sampleCount++;
+				} else {
+					// The composition time offset has changed, so create a new entry with the new composition time
+					// offset
+					track.compositionTimeOffsetTable.push({
+						sampleCount: 1,
+						sampleCompositionTimeOffset: sampleCompositionTimeOffset
+					});
+				}
 			}
 		} else {
 			track.lastTimescaleUnits = 0;
@@ -483,6 +524,10 @@ export class Muxer<T extends Target> {
 				track.timeToSampleTable.push({
 					sampleCount: 1,
 					sampleDelta: intoTimescale(sample.duration, track.timescale)
+				});
+				track.compositionTimeOffsetTable.push({
+					sampleCount: 1,
+					sampleCompositionTimeOffset: sampleCompositionTimeOffset
 				});
 			}
 		}
@@ -493,7 +538,7 @@ export class Muxer<T extends Target> {
 		if (!track.currentChunk) {
 			beginNewChunk = true;
 		} else {
-			let currentChunkDuration = sample.timestamp - track.currentChunk.startTimestamp;
+			let currentChunkDuration = sample.presentationTimestamp - track.currentChunk.startTimestamp;
 
 			if (this.#options.fastStart === 'fragmented') {
 				let mostImportantTrack = this.#videoTrack ?? this.#audioTrack;
@@ -512,7 +557,7 @@ export class Muxer<T extends Target> {
 			}
 
 			track.currentChunk = {
-				startTimestamp: sample.timestamp,
+				startTimestamp: sample.presentationTimestamp,
 				samples: []
 			};
 		}
@@ -520,34 +565,54 @@ export class Muxer<T extends Target> {
 		track.currentChunk.samples.push(sample);
 	}
 
-	#validateTimestamp(timestamp: number, track: Track) {
+	#validateTimestamp(presentationTimestamp: number, decodeTimestamp: number, track: Track) {
 		// Check first timestamp behavior
-		if (this.#options.firstTimestampBehavior === 'strict' && track.lastTimestamp === -1 && timestamp !== 0) {
+		const strictTimestampBehavior = this.#options.firstTimestampBehavior === 'strict';
+		const noLastDecodeTimestamp = track.lastDecodeTimestamp === -1;
+		const timestampNonZero = decodeTimestamp !== 0;
+		if (strictTimestampBehavior && noLastDecodeTimestamp && timestampNonZero) {
 			throw new Error(
-				`The first chunk for your media track must have a timestamp of 0 (received ${timestamp}). Non-zero ` +
-				`first timestamps are often caused by directly piping frames or audio data from a MediaStreamTrack ` +
-				`into the encoder. Their timestamps are typically relative to the age of the document, which is ` +
-				`probably what you want.\n\nIf you want to offset all timestamps of a track such that the first one ` +
-				`is zero, set firstTimestampBehavior: 'offset' in the options.\n`
+				`The first chunk for your media track must have a timestamp of 0 (received DTS=${decodeTimestamp}).` +
+				`Non-zero first timestamps are often caused by directly piping frames or audio data from a ` +
+				`MediaStreamTrack into the encoder. Their timestamps are typically relative to the age of the` +
+				`document, which is probably what you want.\n\nIf you want to offset all timestamps of a track such ` +
+				`that the first one is zero, set firstTimestampBehavior: 'offset' in the options.\n`
 			);
-		} else if (this.#options.firstTimestampBehavior === 'offset') {
-			if (track.firstTimestamp === undefined) {
-				track.firstTimestamp = timestamp;
+		} else if (
+			this.#options.firstTimestampBehavior === 'offset' ||
+			this.#options.firstTimestampBehavior === 'cross-track-offset'
+		) {
+			if (track.firstDecodeTimestamp === undefined) {
+				track.firstDecodeTimestamp = decodeTimestamp;
 			}
 
-			timestamp -= track.firstTimestamp;
+			let baseDecodeTimestamp: number;
+			if (this.#options.firstTimestampBehavior === 'offset') {
+				baseDecodeTimestamp = track.firstDecodeTimestamp;
+			} else {
+				// Since each track may have its firstDecodeTimestamp set independently, but the tracks' timestamps come
+				// from the same clock, we should subtract the earlier of the (up to) two tracks' first timestamps to
+				// ensure A/V sync.
+				baseDecodeTimestamp = Math.min(
+					this.#videoTrack?.firstDecodeTimestamp ?? Infinity,
+					this.#audioTrack?.firstDecodeTimestamp ?? Infinity
+				);
+			}
+
+			decodeTimestamp -= baseDecodeTimestamp;
+			presentationTimestamp -= baseDecodeTimestamp;
 		}
 
-		if (timestamp < track.lastTimestamp) {
+		if (decodeTimestamp < track.lastDecodeTimestamp) {
 			throw new Error(
 				`Timestamps must be monotonically increasing ` +
-				`(went from ${track.lastTimestamp * 1e6} to ${timestamp * 1e6}).`
+				`(DTS went from ${track.lastDecodeTimestamp * 1e6} to ${decodeTimestamp * 1e6}).`
 			);
 		}
 
-		track.lastTimestamp = timestamp;
+		track.lastDecodeTimestamp = decodeTimestamp;
 
-		return timestamp;
+		return { presentationTimestamp, decodeTimestamp };
 	}
 
 	#finalizeCurrentChunk(track: Track) {

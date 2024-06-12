@@ -10,8 +10,10 @@ import {
 import {
 	ascii,
 	i16,
+	i32,
 	intoTimescale,
 	last,
+	lastPresentedSample,
 	u16,
 	u64,
 	u8,
@@ -111,7 +113,12 @@ export const mvhd = (
 ) => {
 	let duration = intoTimescale(Math.max(
 		0,
-		...tracks.filter(x => x.samples.length > 0).map(x => last(x.samples).timestamp + last(x.samples).duration)
+		...tracks.
+			filter(x => x.samples.length > 0).
+			map(x => {
+				const lastSample = lastPresentedSample(x.samples);
+				return lastSample.presentationTimestamp + lastSample.duration;
+			})
 	), GLOBAL_TIMESCALE);
 	let nextTrackId = Math.max(...tracks.map(x => x.id)) + 1;
 
@@ -148,9 +155,9 @@ export const tkhd = (
 	track: Track,
 	creationTime: number
 ) => {
-	let lastSample = last(track.samples);
+	let lastSample = lastPresentedSample(track.samples);
 	let durationInGlobalTimescale = intoTimescale(
-		lastSample ? lastSample.timestamp + lastSample.duration : 0,
+		lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
 		GLOBAL_TIMESCALE
 	);
 
@@ -193,9 +200,9 @@ export const mdhd = (
 	track: Track,
 	creationTime: number
 ) => {
-	let lastSample = last(track.samples);
+	let lastSample = lastPresentedSample(track.samples);
 	let localDuration = intoTimescale(
-		lastSample ? lastSample.timestamp + lastSample.duration : 0,
+		lastSample ? lastSample.presentationTimestamp + lastSample.duration : 0,
 		track.timescale
 	);
 
@@ -269,14 +276,19 @@ export const url = () => fullBox('url ', 0, 1); // Self-reference flag enabled
  * Sample Table Box: Contains information for converting from media time to sample number to sample location. This box
  * also indicates how to interpret the sample (for example, whether to decompress the video data and, if so, how).
  */
-export const stbl = (track: Track) => box('stbl', null, [
-	stsd(track),
-	stts(track),
-	stss(track),
-	stsc(track),
-	stsz(track),
-	stco(track)
-]);
+export const stbl = (track: Track) => {
+	const needsCTTS = track.compositionTimeOffsetTable.length > 1 ||
+		track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
+	return box('stbl', null, [
+		stsd(track),
+		stts(track),
+		stss(track),
+		stsc(track),
+		stsz(track),
+		stco(track),
+		needsCTTS ? ctts(track) : null
+	]);
+};
 
 /**
  * Sample Description Box: Stores information that allows you to decode samples in the media. The data stored in the
@@ -448,6 +460,19 @@ export const stco = (track: Track) => {
 	]);
 };
 
+/** Composition Time to Sample Box: Stores composition time offset information (PTS-DTS) for a
+ * media's samples. The table is compact, meaning that consecutive samples with the same time
+ * composition time offset will be grouped. */
+export const ctts = (track: Track) => {
+	return fullBox('ctts', 0, 0, [
+		u32(track.compositionTimeOffsetTable.length), // Number of entries
+		track.compositionTimeOffsetTable.map(x => [ // Time-to-sample table
+			u32(x.sampleCount), // Sample count
+			u32(x.sampleCompositionTimeOffset) // Sample offset
+		])
+	]);
+};
+
 /**
  * Movie Extends Box: This box signals to readers that the file is fragmented. Contains a single Track Extends Box
  * for each track in the movie.
@@ -552,15 +577,20 @@ export const trun = (track: Track) => {
 	let allSampleDurations = track.currentChunk.samples.map(x => x.timescaleUnitsToNextSample);
 	let allSampleSizes = track.currentChunk.samples.map(x => x.size);
 	let allSampleFlags = track.currentChunk.samples.map(fragmentSampleFlags);
+	let allSampleCompositionTimeOffsets = track.currentChunk.samples.
+		map(x => intoTimescale(x.presentationTimestamp - x.decodeTimestamp, track.timescale));
 
 	let uniqueSampleDurations = new Set(allSampleDurations);
 	let uniqueSampleSizes = new Set(allSampleSizes);
 	let uniqueSampleFlags = new Set(allSampleFlags);
+	let uniqueSampleCompositionTimeOffsets = new Set(allSampleCompositionTimeOffsets);
 
 	let firstSampleFlagsPresent = uniqueSampleFlags.size === 2 && allSampleFlags[0] !== allSampleFlags[1];
 	let sampleDurationPresent = uniqueSampleDurations.size > 1;
 	let sampleSizePresent = uniqueSampleSizes.size > 1;
 	let sampleFlagsPresent = !firstSampleFlagsPresent && uniqueSampleFlags.size > 1;
+	let sampleCompositionTimeOffsetsPresent =
+		uniqueSampleCompositionTimeOffsets.size > 1 || [...uniqueSampleCompositionTimeOffsets].some(x => x !== 0);
 
 	let flags = 0;
 	flags |= 0x0001; // Data offset present
@@ -568,15 +598,18 @@ export const trun = (track: Track) => {
 	flags |= 0x0100 * +sampleDurationPresent; // Sample duration present
 	flags |= 0x0200 * +sampleSizePresent; // Sample size present
 	flags |= 0x0400 * +sampleFlagsPresent; // Sample flags present
+	flags |= 0x0800 * +sampleCompositionTimeOffsetsPresent; // Sample composition time offsets present
 
-	return fullBox('trun', 0, flags, [
+	return fullBox('trun', 1, flags, [
 		u32(track.currentChunk.samples.length), // Sample count
 		u32(track.currentChunk.offset - track.currentChunk.moofOffset || 0), // Data offset
 		firstSampleFlagsPresent ? u32(allSampleFlags[0]) : [],
 		track.currentChunk.samples.map((_, i) => [
 			sampleDurationPresent ? u32(allSampleDurations[i]) : [], // Sample duration
 			sampleSizePresent ? u32(allSampleSizes[i]) : [], // Sample size
-			sampleFlagsPresent ? u32(allSampleFlags[i]) : [] // Sample flags
+			sampleFlagsPresent ? u32(allSampleFlags[i]) : [], // Sample flags
+			// Sample composition time offsets
+			sampleCompositionTimeOffsetsPresent ? i32(allSampleCompositionTimeOffsets[i]) : []
 		])
 	]);
 };

@@ -88,8 +88,11 @@ declare type MuxerOptions<T extends Target> = {
 	 *
 	 * Use `'offset'` to offset the timestamp of each video track by that track's first chunk's timestamp. This way, it
 	 * starts at 0.
+	 *
+	 * Use `'cross-track-offset'` to offset the timestamp of _both_ tracks by whichever track's first chunk timestamp is
+	 * earliest. This is designed for cases when both tracks' timestamps come from the same clock source.
 	 */
-	firstTimestampBehavior?: 'strict' | 'offset'
+	firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
 };
 
 declare type Target = ArrayBufferTarget | StreamTarget | FileSystemWritableFileStreamTarget;
@@ -144,10 +147,17 @@ declare class Muxer<T extends Target> {
 	 * Adds a new, encoded video chunk to the MP4 file.
 	 * @param chunk The encoded video chunk. Can be obtained through a `VideoEncoder`.
 	 * @param meta The metadata about the encoded video, also provided by `VideoEncoder`.
-	 * @param timestamp Optionally, the timestamp to use for the video chunk. When not provided, it will use the one
-	 * specified in `chunk`.
+	 * @param timestamp Optionally, the presentation timestamp to use for the video chunk. When not provided, it will
+	 * use the one specified in `chunk`.
+	 * @param compositionTimeOffset Optionally, the composition time offset (i.e. presentation timestamp minus decode
+	 * timestamp) to use for the video chunk. When not provided, it will be zero.
 	 */
-	addVideoChunk(chunk: EncodedVideoChunk, meta?: EncodedVideoChunkMetadata, timestamp?: number): void;
+	addVideoChunk(
+		chunk: EncodedVideoChunk,
+		meta?: EncodedVideoChunkMetadata,
+		timestamp?: number,
+		compositionTimeOffset?: number
+	): void;
 	/**
 	 * Adds a new, encoded audio chunk to the MP4 file.
 	 * @param chunk The encoded audio chunk. Can be obtained through an `AudioEncoder`.
@@ -165,13 +175,16 @@ declare class Muxer<T extends Target> {
 	 * @param timestamp The timestamp of the video chunk.
 	 * @param duration The duration of the video chunk (typically 0).
 	 * @param meta Optionally, any encoder metadata.
+	 * @param compositionTimeOffset The composition time offset (i.e. presentation timestamp minus decode timestamp) of
+	 * the video chunk.
 	 */
 	addVideoChunkRaw(
 		data: Uint8Array,
 		type: 'key' | 'delta',
 		timestamp: number,
 		duration: number,
-		meta?: EncodedVideoChunkMetadata
+		meta?: EncodedVideoChunkMetadata,
+		compositionTimeOffset?: number
 	): void;
 	/**
 	 * Adds a raw audio chunk to the MP4 file. This method should be used when the encoded audio is not obtained
