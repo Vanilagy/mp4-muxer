@@ -83,9 +83,9 @@ var last = (arr) => {
 };
 var lastPresentedSample = (samples) => {
   let result = void 0;
-  for (const s of samples) {
-    if (!result || s.presentationTimestamp > result.presentationTimestamp) {
-      result = s;
+  for (let sample of samples) {
+    if (!result || sample.presentationTimestamp > result.presentationTimestamp) {
+      result = sample;
     }
   }
   return result;
@@ -334,7 +334,7 @@ var dref = () => fullBox("dref", 0, 0, [
 ]);
 var url = () => fullBox("url ", 0, 1);
 var stbl = (track) => {
-  const needsCTTS = track.compositionTimeOffsetTable.length > 1 || track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
+  const needsCtts = track.compositionTimeOffsetTable.length > 1 || track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
   return box("stbl", null, [
     stsd(track),
     stts(track),
@@ -342,7 +342,7 @@ var stbl = (track) => {
     stsc(track),
     stsz(track),
     stco(track),
-    needsCTTS ? ctts(track) : null
+    needsCtts ? ctts(track) : null
   ]);
 };
 var stsd = (track) => fullBox("stsd", 0, 0, [
