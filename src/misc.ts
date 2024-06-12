@@ -65,11 +65,13 @@ export const last = <T>(arr: T[]) => {
 
 export const lastPresentedSample = (samples: Sample[]): Sample | undefined => {
 	let result: Sample | undefined = undefined;
-	for (const s of samples) {
-		if (!result || s.presentationTimestamp > result.presentationTimestamp) {
-			result = s;
+
+	for (let sample of samples) {
+		if (!result || sample.presentationTimestamp > result.presentationTimestamp) {
+			result = sample;
 		}
 	}
+
 	return result;
 };
 

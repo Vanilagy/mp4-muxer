@@ -243,7 +243,7 @@ set explicitly:
 - Use `'offset'` to offset the timestamp of each track by that track's first chunk's timestamp. This way, it
 starts at 0.
 - Use `'cross-track-offset'` to offset the timestamp of each track by the _minimum of all tracks' first chunk timestamp_.
-This works like `'offset'`, but should be used when the all tracks use the same timebase.
+This works like `'offset'`, but should be used when the all tracks use the same clock.
 
 ### Muxing media chunks
 Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxer using the following methods:
@@ -251,7 +251,8 @@ Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxe
 addVideoChunk(
     chunk: EncodedVideoChunk,
     meta?: EncodedVideoChunkMetadata,
-    timestamp?: number
+    timestamp?: number,
+	compositionTimeOffset?: number
 ): void;
 
 addAudioChunk(
@@ -274,6 +275,11 @@ let videoEncoder = new VideoEncoder({
 videoEncoder.configure(/* ... */);
 ```
 
+The optional field `compositionTimeOffset` can be used when the decode time of the chunk doesn't equal its presentation
+time; this is the case when [B-frames](https://en.wikipedia.org/wiki/Video_compression_picture_types) are present.
+B-frames don't occur when using the WebCodecs API for encoding. The decode time is calculated by subtracting
+`compositionTimeOffset` from `timestamp`, meaning `timestamp` dictates the presentation time.
+
 Should you have obtained your encoded media data from a source other than the WebCodecs API, you can use these following
 methods to directly send your raw data to the muxer:
 ```ts
@@ -283,7 +289,7 @@ addVideoChunkRaw(
     timestamp: number, // in microseconds
     duration: number, // in microseconds
     meta?: EncodedVideoChunkMetadata,
-    compositionTimeOffset: number // in microseconds
+    compositionTimeOffset?: number // in microseconds
 ): void;
 
 addAudioChunkRaw(

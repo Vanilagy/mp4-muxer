@@ -173,7 +173,7 @@ declare class Muxer<T extends Target> {
 	 * @param data The raw data of the video chunk.
 	 * @param type Whether the video chunk is a keyframe or delta frame.
 	 * @param timestamp The timestamp of the video chunk.
-	 * @param duration The duration of the video chunk (typically 0).
+	 * @param duration The duration of the video chunk.
 	 * @param meta Optionally, any encoder metadata.
 	 * @param compositionTimeOffset The composition time offset (i.e. presentation timestamp minus decode timestamp) of
 	 * the video chunk.
