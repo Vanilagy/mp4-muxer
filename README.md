@@ -252,7 +252,7 @@ addVideoChunk(
     chunk: EncodedVideoChunk,
     meta?: EncodedVideoChunkMetadata,
     timestamp?: number,
-	compositionTimeOffset?: number
+    compositionTimeOffset?: number
 ): void;
 
 addAudioChunk(
