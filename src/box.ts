@@ -333,16 +333,67 @@ export const videoSampleDescription = (
 ]);
 
 /** AVC Configuration Box: Provides additional information to the decoder. */
-export const avcC = (track: Track) => track.codecPrivate && box('avcC', [...track.codecPrivate]);
+export const avcC = (track: VideoTrack) => track.info.decoderConfig && box('avcC', [
+	// For AVC, description is a AVCDecoderConfigurationRecord, so nothing else to do here
+	...new Uint8Array(track.info.decoderConfig.description as ArrayBuffer)
+]);
 
 /** HEVC Configuration Box: Provides additional information to the decoder. */
-export const hvcC = (track: Track) => track.codecPrivate && box('hvcC', [...track.codecPrivate]);
+export const hvcC = (track: VideoTrack) => track.info.decoderConfig && box('hvcC', [
+	// For HEVC, description is a HEVCDecoderConfigurationRecord, so nothing else to do here
+	...new Uint8Array(track.info.decoderConfig.description as ArrayBuffer)
+]);
 
 /** VP9 Configuration Box: Provides additional information to the decoder. */
-export const vpcC = (track: Track) => track.codecPrivate && box('vpcC', [...track.codecPrivate]);
+export const vpcC = (track: VideoTrack) => {
+	// Reference: https://www.webmproject.org/vp9/mp4/
+
+	if (!track.info.decoderConfig) {
+		return null;
+	}
+
+	let decoderConfig = track.info.decoderConfig;
+	let parts = decoderConfig.codec.split('.');
+	let profile = Number(parts[1]);
+	let level = Number(parts[2]);
+
+	let bitDepth = Number(parts[3]);
+	let chromaSubsampling = 0;
+	let thirdByte = (bitDepth << 4) + (chromaSubsampling << 1) + Number(decoderConfig.colorSpace.fullRange);
+
+	// Set all to undetermined. We could determine them using the codec color space info, but there's no need.
+	let colourPrimaries = 2;
+	let transferCharacteristics = 2;
+	let matrixCoefficients = 2;
+
+	return fullBox('vpcC', 1, 0, [
+		u8(profile), // Profile
+		u8(level), // Level
+		u8(thirdByte), // Bit depth, chroma subsampling, full range
+		u8(colourPrimaries), // Colour primaries
+		u8(transferCharacteristics), // Transfer characteristics
+		u8(matrixCoefficients), // Matrix coefficients
+		u16(0) // Codec initialization data size
+	]);
+};
 
 /** AV1 Configuration Box: Provides additional information to the decoder. */
-export const av1C = (track: Track) => track.codecPrivate && box('av1C', [...track.codecPrivate]);
+export const av1C = () => {
+	// Reference: https://aomediacodec.github.io/av1-isobmff/
+
+	let marker = 1;
+	let version = 1;
+	let firstByte = (marker << 7) + version;
+
+	// The box contents are not correct like this, but its length is. Getting the values for the last three bytes
+	// requires peeking into the bitstream of the coded chunks. Might come back later.
+	return box('av1C', [
+		firstByte,
+		0,
+		0,
+		0
+	]);
+};
 
 /** Sound Sample Description Box: Contains information that defines how to interpret sound media data. */
 export const soundSampleDescription = (
@@ -364,26 +415,30 @@ export const soundSampleDescription = (
 ]);
 
 /** MPEG-4 Elementary Stream Descriptor Box. */
-export const esds = (track: Track) => fullBox('esds', 0, 0, [
-	// https://stackoverflow.com/a/54803118
-	u32(0x03808080), // TAG(3) = Object Descriptor ([2])
-	u8(0x20 + track.codecPrivate.byteLength), // length of this OD (which includes the next 2 tags)
-	u16(1), // ES_ID = 1
-	u8(0x00), // flags etc = 0
-	u32(0x04808080), // TAG(4) = ES Descriptor ([2]) embedded in above OD
-	u8(0x12 + track.codecPrivate.byteLength), // length of this ESD
-	u8(0x40), // MPEG-4 Audio
-	u8(0x15), // stream type(6bits)=5 audio, flags(2bits)=1
-	u24(0), // 24bit buffer size
-	u32(0x0001FC17), // max bitrate
-	u32(0x0001FC17), // avg bitrate
-	u32(0x05808080), // TAG(5) = ASC ([2],[3]) embedded in above OD
-	u8(track.codecPrivate.byteLength), // length
-	...track.codecPrivate,
-	u32(0x06808080), // TAG(6)
-	u8(0x01), // length
-	u8(0x02) // data
-]);
+export const esds = (track: Track) => {
+	let description = new Uint8Array(track.info.decoderConfig.description as ArrayBuffer);
+
+	return fullBox('esds', 0, 0, [
+		// https://stackoverflow.com/a/54803118
+		u32(0x03808080), // TAG(3) = Object Descriptor ([2])
+		u8(0x20 + description.byteLength), // length of this OD (which includes the next 2 tags)
+		u16(1), // ES_ID = 1
+		u8(0x00), // flags etc = 0
+		u32(0x04808080), // TAG(4) = ES Descriptor ([2]) embedded in above OD
+		u8(0x12 + description.byteLength), // length of this ESD
+		u8(0x40), // MPEG-4 Audio
+		u8(0x15), // stream type(6bits)=5 audio, flags(2bits)=1
+		u24(0), // 24bit buffer size
+		u32(0x0001FC17), // max bitrate
+		u32(0x0001FC17), // avg bitrate
+		u32(0x05808080), // TAG(5) = ASC ([2],[3]) embedded in above OD
+		u8(description.byteLength), // length
+		...description,
+		u32(0x06808080), // TAG(6)
+		u8(0x01), // length
+		u8(0x02) // data
+	]);
+};
 
 /** Opus Specific Box. */
 export const dOps = (track: AudioTrack) => box('dOps', [

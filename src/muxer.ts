@@ -46,15 +46,16 @@ export interface Track {
 		codec: VideoOptions['codec'],
 		width: number,
 		height: number,
-		rotation: 0 | 90 | 180 | 270 | TransformationMatrix
+		rotation: 0 | 90 | 180 | 270 | TransformationMatrix,
+		decoderConfig: VideoDecoderConfig
 	} | {
 		type: 'audio',
 		codec: AudioOptions['codec'],
 		numberOfChannels: number,
-		sampleRate: number
+		sampleRate: number,
+		decoderConfig: AudioDecoderConfig
 	},
 	timescale: number,
-	codecPrivate: Uint8Array,
 	samples: Sample[],
 
 	firstDecodeTimestamp: number,
@@ -248,10 +249,10 @@ export class Muxer<T extends Target> {
 					codec: this.#options.video.codec,
 					width: this.#options.video.width,
 					height: this.#options.video.height,
-					rotation: this.#options.video.rotation ?? 0
+					rotation: this.#options.video.rotation ?? 0,
+					decoderConfig: null
 				},
 				timescale: 11520, // Timescale used by FFmpeg, contains many common frame rates as factors
-				codecPrivate: new Uint8Array(0),
 				samples: [],
 				finalizedChunks: [],
 				currentChunk: null,
@@ -279,10 +280,15 @@ export class Muxer<T extends Target> {
 					type: 'audio',
 					codec: this.#options.audio.codec,
 					numberOfChannels: this.#options.audio.numberOfChannels,
-					sampleRate: this.#options.audio.sampleRate
+					sampleRate: this.#options.audio.sampleRate,
+					decoderConfig: {
+						codec: this.#options.audio.codec,
+						description: guessedCodecPrivate,
+						numberOfChannels: this.#options.audio.numberOfChannels,
+						sampleRate: this.#options.audio.sampleRate
+					}
 				},
 				timescale: this.#options.audio.sampleRate,
-				codecPrivate: guessedCodecPrivate,
 				samples: [],
 				finalizedChunks: [],
 				currentChunk: null,
@@ -451,8 +457,12 @@ export class Muxer<T extends Target> {
 		presentationTimestampInSeconds = adjusted.presentationTimestamp;
 		decodeTimestampInSeconds = adjusted.decodeTimestamp;
 
-		if (meta?.decoderConfig?.description) {
-			track.codecPrivate = new Uint8Array(meta.decoderConfig.description as ArrayBuffer);
+		if (meta?.decoderConfig) {
+			if (track.info.decoderConfig === null) {
+				track.info.decoderConfig = meta.decoderConfig;
+			} else {
+				Object.assign(track.info.decoderConfig, meta.decoderConfig);
+			}
 		}
 
 		let sample: Sample = {

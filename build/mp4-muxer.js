@@ -417,10 +417,56 @@ var Mp4Muxer = (() => {
   ], [
     VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
   ]);
-  var avcC = (track) => track.codecPrivate && box("avcC", [...track.codecPrivate]);
-  var hvcC = (track) => track.codecPrivate && box("hvcC", [...track.codecPrivate]);
-  var vpcC = (track) => track.codecPrivate && box("vpcC", [...track.codecPrivate]);
-  var av1C = (track) => track.codecPrivate && box("av1C", [...track.codecPrivate]);
+  var avcC = (track) => track.info.decoderConfig && box("avcC", [
+    // For AVC, description is a AVCDecoderConfigurationRecord, so nothing else to do here
+    ...new Uint8Array(track.info.decoderConfig.description)
+  ]);
+  var hvcC = (track) => track.info.decoderConfig && box("hvcC", [
+    // For HEVC, description is a HEVCDecoderConfigurationRecord, so nothing else to do here
+    ...new Uint8Array(track.info.decoderConfig.description)
+  ]);
+  var vpcC = (track) => {
+    if (!track.info.decoderConfig) {
+      return null;
+    }
+    let decoderConfig = track.info.decoderConfig;
+    let parts = decoderConfig.codec.split(".");
+    let profile = Number(parts[1]);
+    let level = Number(parts[2]);
+    let bitDepth = Number(parts[3]);
+    let chromaSubsampling = 0;
+    let thirdByte = (bitDepth << 4) + (chromaSubsampling << 1) + Number(decoderConfig.colorSpace.fullRange);
+    let colourPrimaries = 2;
+    let transferCharacteristics = 2;
+    let matrixCoefficients = 2;
+    return fullBox("vpcC", 1, 0, [
+      u8(profile),
+      // Profile
+      u8(level),
+      // Level
+      u8(thirdByte),
+      // Bit depth, chroma subsampling, full range
+      u8(colourPrimaries),
+      // Colour primaries
+      u8(transferCharacteristics),
+      // Transfer characteristics
+      u8(matrixCoefficients),
+      // Matrix coefficients
+      u16(0)
+      // Codec initialization data size
+    ]);
+  };
+  var av1C = () => {
+    let marker = 1;
+    let version = 1;
+    let firstByte = (marker << 7) + version;
+    return box("av1C", [
+      firstByte,
+      0,
+      0,
+      0
+    ]);
+  };
   var soundSampleDescription = (compressionType, track) => box(compressionType, [
     Array(6).fill(0),
     // Reserved
@@ -445,42 +491,45 @@ var Mp4Muxer = (() => {
   ], [
     AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
   ]);
-  var esds = (track) => fullBox("esds", 0, 0, [
-    // https://stackoverflow.com/a/54803118
-    u32(58753152),
-    // TAG(3) = Object Descriptor ([2])
-    u8(32 + track.codecPrivate.byteLength),
-    // length of this OD (which includes the next 2 tags)
-    u16(1),
-    // ES_ID = 1
-    u8(0),
-    // flags etc = 0
-    u32(75530368),
-    // TAG(4) = ES Descriptor ([2]) embedded in above OD
-    u8(18 + track.codecPrivate.byteLength),
-    // length of this ESD
-    u8(64),
-    // MPEG-4 Audio
-    u8(21),
-    // stream type(6bits)=5 audio, flags(2bits)=1
-    u24(0),
-    // 24bit buffer size
-    u32(130071),
-    // max bitrate
-    u32(130071),
-    // avg bitrate
-    u32(92307584),
-    // TAG(5) = ASC ([2],[3]) embedded in above OD
-    u8(track.codecPrivate.byteLength),
-    // length
-    ...track.codecPrivate,
-    u32(109084800),
-    // TAG(6)
-    u8(1),
-    // length
-    u8(2)
-    // data
-  ]);
+  var esds = (track) => {
+    let description = new Uint8Array(track.info.decoderConfig.description);
+    return fullBox("esds", 0, 0, [
+      // https://stackoverflow.com/a/54803118
+      u32(58753152),
+      // TAG(3) = Object Descriptor ([2])
+      u8(32 + description.byteLength),
+      // length of this OD (which includes the next 2 tags)
+      u16(1),
+      // ES_ID = 1
+      u8(0),
+      // flags etc = 0
+      u32(75530368),
+      // TAG(4) = ES Descriptor ([2]) embedded in above OD
+      u8(18 + description.byteLength),
+      // length of this ESD
+      u8(64),
+      // MPEG-4 Audio
+      u8(21),
+      // stream type(6bits)=5 audio, flags(2bits)=1
+      u24(0),
+      // 24bit buffer size
+      u32(130071),
+      // max bitrate
+      u32(130071),
+      // avg bitrate
+      u32(92307584),
+      // TAG(5) = ASC ([2],[3]) embedded in above OD
+      u8(description.byteLength),
+      // length
+      ...description,
+      u32(109084800),
+      // TAG(6)
+      u8(1),
+      // length
+      u8(2)
+      // data
+    ]);
+  };
   var dOps = (track) => box("dOps", [
     u8(0),
     // Version
@@ -1358,11 +1407,11 @@ var Mp4Muxer = (() => {
           codec: __privateGet(this, _options).video.codec,
           width: __privateGet(this, _options).video.width,
           height: __privateGet(this, _options).video.height,
-          rotation: __privateGet(this, _options).video.rotation ?? 0
+          rotation: __privateGet(this, _options).video.rotation ?? 0,
+          decoderConfig: null
         },
         timescale: 11520,
         // Timescale used by FFmpeg, contains many common frame rates as factors
-        codecPrivate: new Uint8Array(0),
         samples: [],
         finalizedChunks: [],
         currentChunk: null,
@@ -1389,10 +1438,15 @@ var Mp4Muxer = (() => {
           type: "audio",
           codec: __privateGet(this, _options).audio.codec,
           numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
-          sampleRate: __privateGet(this, _options).audio.sampleRate
+          sampleRate: __privateGet(this, _options).audio.sampleRate,
+          decoderConfig: {
+            codec: __privateGet(this, _options).audio.codec,
+            description: guessedCodecPrivate,
+            numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
+            sampleRate: __privateGet(this, _options).audio.sampleRate
+          }
         },
         timescale: __privateGet(this, _options).audio.sampleRate,
-        codecPrivate: guessedCodecPrivate,
         samples: [],
         finalizedChunks: [],
         currentChunk: null,
@@ -1433,8 +1487,12 @@ var Mp4Muxer = (() => {
     let adjusted = __privateMethod(this, _validateTimestamp, validateTimestamp_fn).call(this, presentationTimestampInSeconds, decodeTimestampInSeconds, track);
     presentationTimestampInSeconds = adjusted.presentationTimestamp;
     decodeTimestampInSeconds = adjusted.decodeTimestamp;
-    if (meta?.decoderConfig?.description) {
-      track.codecPrivate = new Uint8Array(meta.decoderConfig.description);
+    if (meta?.decoderConfig) {
+      if (track.info.decoderConfig === null) {
+        track.info.decoderConfig = meta.decoderConfig;
+      } else {
+        Object.assign(track.info.decoderConfig, meta.decoderConfig);
+      }
     }
     let sample = {
       presentationTimestamp: presentationTimestampInSeconds,
