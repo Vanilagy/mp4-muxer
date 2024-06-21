@@ -353,6 +353,10 @@ export const vpcC = (track: VideoTrack) => {
 	}
 
 	let decoderConfig = track.info.decoderConfig;
+	if (!decoderConfig.colorSpace) {
+		throw new Error(`'colorSpace' is required in the decoder config for VP9.`);
+	}
+
 	let parts = decoderConfig.codec.split('.');
 	let profile = Number(parts[1]);
 	let level = Number(parts[2]);

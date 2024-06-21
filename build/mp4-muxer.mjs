@@ -390,7 +390,7 @@ var videoSampleDescription = (compressionType, track) => box(compressionType, [
   VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
 ]);
 var avcC = (track) => track.info.decoderConfig && box("avcC", [
-  // For AVC, description is a AVCDecoderConfigurationRecord, so nothing else to do here
+  // For AVC, description is an AVCDecoderConfigurationRecord, so nothing else to do here
   ...new Uint8Array(track.info.decoderConfig.description)
 ]);
 var hvcC = (track) => track.info.decoderConfig && box("hvcC", [
@@ -402,6 +402,9 @@ var vpcC = (track) => {
     return null;
   }
   let decoderConfig = track.info.decoderConfig;
+  if (!decoderConfig.colorSpace) {
+    throw new Error(`'colorSpace' is required in the decoder config for VP9.`);
+  }
   let parts = decoderConfig.codec.split(".");
   let profile = Number(parts[1]);
   let level = Number(parts[2]);
