@@ -334,7 +334,7 @@ export const videoSampleDescription = (
 
 /** AVC Configuration Box: Provides additional information to the decoder. */
 export const avcC = (track: VideoTrack) => track.info.decoderConfig && box('avcC', [
-	// For AVC, description is a AVCDecoderConfigurationRecord, so nothing else to do here
+	// For AVC, description is an AVCDecoderConfigurationRecord, so nothing else to do here
 	...new Uint8Array(track.info.decoderConfig.description as ArrayBuffer)
 ]);
 
