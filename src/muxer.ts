@@ -627,7 +627,7 @@ export class Muxer<T extends Target> {
 
 	#finalizeCurrentChunk(track: Track) {
 		if (this.#options.fastStart === 'fragmented') {
-			throw new Error("Can't finalize individual chunks 'fastStart' is set to 'fragmented'.");
+			throw new Error("Can't finalize individual chunks if 'fastStart' is set to 'fragmented'.");
 		}
 
 		if (!track.currentChunk) return;
