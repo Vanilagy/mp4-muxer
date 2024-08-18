@@ -808,12 +808,42 @@ var Mp4Muxer = (() => {
   var StreamTarget = class {
     constructor(options) {
       this.options = options;
+      if (typeof options !== "object") {
+        throw new TypeError("StreamTarget requires an options object to be passed to its constructor.");
+      }
+      if (options.onData) {
+        if (typeof options.onData !== "function") {
+          throw new TypeError("options.onData, when provided, must be a function.");
+        }
+        if (options.onData.length < 2) {
+          throw new TypeError(
+            "options.onData, when provided, must be a function that takes in at least two arguments (data and position). Ignoring the position argument, which specifies the byte offset at which the data is to be written, can lead to broken outputs."
+          );
+        }
+      }
+      if (options.chunked !== void 0 && typeof options.chunked !== "boolean") {
+        throw new TypeError("options.chunked, when provided, must be a boolean.");
+      }
+      if (options.chunkSize !== void 0 && (!Number.isInteger(options.chunkSize) || options.chunkSize <= 0)) {
+        throw new TypeError("options.chunkSize, when provided, must be a positive integer.");
+      }
     }
   };
   var FileSystemWritableFileStreamTarget = class {
     constructor(stream, options) {
       this.stream = stream;
       this.options = options;
+      if (!(stream instanceof FileSystemWritableFileStream)) {
+        throw new TypeError("FileSystemWritableFileStreamTarget requires a FileSystemWritableFileStream instance.");
+      }
+      if (options !== void 0 && typeof options !== "object") {
+        throw new TypeError("FileSystemWritableFileStreamTarget's options, when provided, must be an object.");
+      }
+      if (options) {
+        if (options.chunkSize !== void 0 && (!Number.isInteger(options.chunkSize) || options.chunkSize <= 0)) {
+          throw new TypeError("options.chunkSize, when provided, must be a positive integer");
+        }
+      }
     }
   };
 
@@ -1182,6 +1212,22 @@ var Mp4Muxer = (() => {
       __privateMethod(this, _writeHeader, writeHeader_fn).call(this);
     }
     addVideoChunk(sample, meta, timestamp, compositionTimeOffset) {
+      if (!(sample instanceof EncodedVideoChunk)) {
+        throw new TypeError("addVideoChunk's first argument (sample) must be of type EncodedVideoChunk.");
+      }
+      if (meta && typeof meta !== "object") {
+        throw new TypeError("addVideoChunk's second argument (meta), when provided, must be an object.");
+      }
+      if (timestamp !== void 0 && (!Number.isFinite(timestamp) || timestamp < 0)) {
+        throw new TypeError(
+          "addVideoChunk's third argument (timestamp), when provided, must be a non-negative real number."
+        );
+      }
+      if (compositionTimeOffset !== void 0 && !Number.isFinite(compositionTimeOffset)) {
+        throw new TypeError(
+          "addVideoChunk's fourth argument (compositionTimeOffset), when provided, must be a real number."
+        );
+      }
       let data = new Uint8Array(sample.byteLength);
       sample.copyTo(data);
       this.addVideoChunkRaw(
@@ -1194,6 +1240,26 @@ var Mp4Muxer = (() => {
       );
     }
     addVideoChunkRaw(data, type, timestamp, duration, meta, compositionTimeOffset) {
+      if (!(data instanceof Uint8Array)) {
+        throw new TypeError("addVideoChunkRaw's first argument (data) must be an instance of Uint8Array.");
+      }
+      if (type !== "key" && type !== "delta") {
+        throw new TypeError("addVideoChunkRaw's second argument (type) must be either 'key' or 'delta'.");
+      }
+      if (!Number.isFinite(timestamp) || timestamp < 0) {
+        throw new TypeError("addVideoChunkRaw's third argument (timestamp) must be a non-negative real number.");
+      }
+      if (!Number.isFinite(duration) || duration < 0) {
+        throw new TypeError("addVideoChunkRaw's fourth argument (duration) must be a non-negative real number.");
+      }
+      if (meta && typeof meta !== "object") {
+        throw new TypeError("addVideoChunkRaw's fifth argument (meta), when provided, must be an object.");
+      }
+      if (compositionTimeOffset !== void 0 && !Number.isFinite(compositionTimeOffset)) {
+        throw new TypeError(
+          "addVideoChunkRaw's sixth argument (compositionTimeOffset), when provided, must be a real number."
+        );
+      }
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
       if (!__privateGet(this, _options).video)
         throw new Error("No video track declared.");
@@ -1216,11 +1282,37 @@ var Mp4Muxer = (() => {
       }
     }
     addAudioChunk(sample, meta, timestamp) {
+      if (!(sample instanceof EncodedAudioChunk)) {
+        throw new TypeError("addAudioChunk's first argument (sample) must be of type EncodedAudioChunk.");
+      }
+      if (meta && typeof meta !== "object") {
+        throw new TypeError("addAudioChunk's second argument (meta), when provided, must be an object.");
+      }
+      if (timestamp !== void 0 && (!Number.isFinite(timestamp) || timestamp < 0)) {
+        throw new TypeError(
+          "addAudioChunk's third argument (timestamp), when provided, must be a non-negative real number."
+        );
+      }
       let data = new Uint8Array(sample.byteLength);
       sample.copyTo(data);
       this.addAudioChunkRaw(data, sample.type, timestamp ?? sample.timestamp, sample.duration, meta);
     }
     addAudioChunkRaw(data, type, timestamp, duration, meta) {
+      if (!(data instanceof Uint8Array)) {
+        throw new TypeError("addAudioChunkRaw's first argument (data) must be an instance of Uint8Array.");
+      }
+      if (type !== "key" && type !== "delta") {
+        throw new TypeError("addAudioChunkRaw's second argument (type) must be either 'key' or 'delta'.");
+      }
+      if (!Number.isFinite(timestamp) || timestamp < 0) {
+        throw new TypeError("addAudioChunkRaw's third argument (timestamp) must be a non-negative real number.");
+      }
+      if (!Number.isFinite(duration) || duration < 0) {
+        throw new TypeError("addAudioChunkRaw's fourth argument (duration) must be a non-negative real number.");
+      }
+      if (meta && typeof meta !== "object") {
+        throw new TypeError("addAudioChunkRaw's fifth argument (meta), when provided, must be an object.");
+      }
       __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
       if (!__privateGet(this, _options).audio)
         throw new Error("No audio track declared.");
@@ -1331,32 +1423,35 @@ var Mp4Muxer = (() => {
   _finalized = new WeakMap();
   _validateOptions = new WeakSet();
   validateOptions_fn = function(options) {
+    if (typeof options !== "object") {
+      throw new TypeError("The muxer requires an options object to be passed to its constructor.");
+    }
     if (options.video) {
       if (!SUPPORTED_VIDEO_CODECS2.includes(options.video.codec)) {
-        throw new Error(`Unsupported video codec: ${options.video.codec}`);
+        throw new TypeError(`Unsupported video codec: ${options.video.codec}`);
       }
       const videoRotation = options.video.rotation;
       if (typeof videoRotation === "number" && ![0, 90, 180, 270].includes(videoRotation)) {
-        throw new Error(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
+        throw new TypeError(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
       } else if (Array.isArray(videoRotation) && (videoRotation.length !== 9 || videoRotation.some((value) => typeof value !== "number"))) {
-        throw new Error(`Invalid video transformation matrix: ${videoRotation.join()}`);
+        throw new TypeError(`Invalid video transformation matrix: ${videoRotation.join()}`);
       }
     }
     if (options.audio && !SUPPORTED_AUDIO_CODECS2.includes(options.audio.codec)) {
-      throw new Error(`Unsupported audio codec: ${options.audio.codec}`);
+      throw new TypeError(`Unsupported audio codec: ${options.audio.codec}`);
     }
     if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
-      throw new Error(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
+      throw new TypeError(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
     }
     if (typeof options.fastStart === "object") {
       if (options.video && options.fastStart.expectedVideoChunks === void 0) {
-        throw new Error(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
+        throw new TypeError(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
       }
       if (options.audio && options.fastStart.expectedAudioChunks === void 0) {
-        throw new Error(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
+        throw new TypeError(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
       }
     } else if (![false, "in-memory", "fragmented"].includes(options.fastStart)) {
-      throw new Error(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
+      throw new TypeError(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
     }
   };
   _writeHeader = new WeakSet();
@@ -1623,7 +1718,7 @@ If you want to offset all timestamps of a track such that the first one is zero,
   _finalizeCurrentChunk = new WeakSet();
   finalizeCurrentChunk_fn = function(track) {
     if (__privateGet(this, _options).fastStart === "fragmented") {
-      throw new Error("Can't finalize individual chunks 'fastStart' is set to 'fragmented'.");
+      throw new Error("Can't finalize individual chunks if 'fastStart' is set to 'fragmented'.");
     }
     if (!track.currentChunk)
       return;

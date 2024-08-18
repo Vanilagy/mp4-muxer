@@ -146,40 +146,44 @@ export class Muxer<T extends Target> {
 	}
 
 	#validateOptions(options: Mp4MuxerOptions<T>) {
+		if (typeof options !== 'object') {
+			throw new TypeError('The muxer requires an options object to be passed to its constructor.');
+		}
+
 		if (options.video) {
 			if (!SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
-				throw new Error(`Unsupported video codec: ${options.video.codec}`);
+				throw new TypeError(`Unsupported video codec: ${options.video.codec}`);
 			}
 
 			const videoRotation = options.video.rotation;
 			if (typeof videoRotation === 'number' && ![0, 90, 180, 270].includes(videoRotation)) {
-				throw new Error(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
+				throw new TypeError(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
 			} else if (
 				Array.isArray(videoRotation) &&
 				(videoRotation.length !== 9 || videoRotation.some(value => typeof value !== 'number'))
 			) {
-				throw new Error(`Invalid video transformation matrix: ${videoRotation.join()}`);
+				throw new TypeError(`Invalid video transformation matrix: ${videoRotation.join()}`);
 			}
 		}
 
 		if (options.audio && !SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
-			throw new Error(`Unsupported audio codec: ${options.audio.codec}`);
+			throw new TypeError(`Unsupported audio codec: ${options.audio.codec}`);
 		}
 
 		if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
-			throw new Error(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
+			throw new TypeError(`Invalid first timestamp behavior: ${options.firstTimestampBehavior}`);
 		}
 
 		if (typeof options.fastStart === 'object') {
 			if (options.video && options.fastStart.expectedVideoChunks === undefined) {
-				throw new Error(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
+				throw new TypeError(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
 			}
 
 			if (options.audio && options.fastStart.expectedAudioChunks === undefined) {
-				throw new Error(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
+				throw new TypeError(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
 			}
 		} else if (![false, 'in-memory', 'fragmented'].includes(options.fastStart)) {
-			throw new Error(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
+			throw new TypeError(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
 		}
 	}
 
@@ -336,6 +340,23 @@ export class Muxer<T extends Target> {
 		timestamp?: number,
 		compositionTimeOffset?: number
 	) {
+		if (!(sample instanceof EncodedVideoChunk)) {
+			throw new TypeError("addVideoChunk's first argument (sample) must be of type EncodedVideoChunk.");
+		}
+		if (meta && typeof meta !== 'object') {
+			throw new TypeError("addVideoChunk's second argument (meta), when provided, must be an object.");
+		}
+		if (timestamp !== undefined && (!Number.isFinite(timestamp) || timestamp < 0)) {
+			throw new TypeError(
+				"addVideoChunk's third argument (timestamp), when provided, must be a non-negative real number."
+			);
+		}
+		if (compositionTimeOffset !== undefined && !Number.isFinite(compositionTimeOffset)) {
+			throw new TypeError(
+				"addVideoChunk's fourth argument (compositionTimeOffset), when provided, must be a real number."
+			);
+		}
+
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
@@ -352,6 +373,27 @@ export class Muxer<T extends Target> {
 		meta?: EncodedVideoChunkMetadata,
 		compositionTimeOffset?: number
 	) {
+		if (!(data instanceof Uint8Array)) {
+			throw new TypeError("addVideoChunkRaw's first argument (data) must be an instance of Uint8Array.");
+		}
+		if (type !== 'key' && type !== 'delta') {
+			throw new TypeError("addVideoChunkRaw's second argument (type) must be either 'key' or 'delta'.");
+		}
+		if (!Number.isFinite(timestamp) || timestamp < 0) {
+			throw new TypeError("addVideoChunkRaw's third argument (timestamp) must be a non-negative real number.");
+		}
+		if (!Number.isFinite(duration) || duration < 0) {
+			throw new TypeError("addVideoChunkRaw's fourth argument (duration) must be a non-negative real number.");
+		}
+		if (meta && typeof meta !== 'object') {
+			throw new TypeError("addVideoChunkRaw's fifth argument (meta), when provided, must be an object.");
+		}
+		if (compositionTimeOffset !== undefined && !Number.isFinite(compositionTimeOffset)) {
+			throw new TypeError(
+				"addVideoChunkRaw's sixth argument (compositionTimeOffset), when provided, must be a real number."
+			);
+		}
+
 		this.#ensureNotFinalized();
 		if (!this.#options.video) throw new Error('No video track declared.');
 
@@ -391,6 +433,18 @@ export class Muxer<T extends Target> {
 	}
 
 	addAudioChunk(sample: EncodedAudioChunk, meta?: EncodedAudioChunkMetadata, timestamp?: number) {
+		if (!(sample instanceof EncodedAudioChunk)) {
+			throw new TypeError("addAudioChunk's first argument (sample) must be of type EncodedAudioChunk.");
+		}
+		if (meta && typeof meta !== 'object') {
+			throw new TypeError("addAudioChunk's second argument (meta), when provided, must be an object.");
+		}
+		if (timestamp !== undefined && (!Number.isFinite(timestamp) || timestamp < 0)) {
+			throw new TypeError(
+				"addAudioChunk's third argument (timestamp), when provided, must be a non-negative real number."
+			);
+		}
+
 		let data = new Uint8Array(sample.byteLength);
 		sample.copyTo(data);
 
@@ -404,6 +458,22 @@ export class Muxer<T extends Target> {
 		duration: number,
 		meta?: EncodedAudioChunkMetadata
 	) {
+		if (!(data instanceof Uint8Array)) {
+			throw new TypeError("addAudioChunkRaw's first argument (data) must be an instance of Uint8Array.");
+		}
+		if (type !== 'key' && type !== 'delta') {
+			throw new TypeError("addAudioChunkRaw's second argument (type) must be either 'key' or 'delta'.");
+		}
+		if (!Number.isFinite(timestamp) || timestamp < 0) {
+			throw new TypeError("addAudioChunkRaw's third argument (timestamp) must be a non-negative real number.");
+		}
+		if (!Number.isFinite(duration) || duration < 0) {
+			throw new TypeError("addAudioChunkRaw's fourth argument (duration) must be a non-negative real number.");
+		}
+		if (meta && typeof meta !== 'object') {
+			throw new TypeError("addAudioChunkRaw's fifth argument (meta), when provided, must be an object.");
+		}
+
 		this.#ensureNotFinalized();
 		if (!this.#options.audio) throw new Error('No audio track declared.');
 
