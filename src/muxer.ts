@@ -155,6 +155,14 @@ export class Muxer<T extends Target> {
 				throw new TypeError(`Unsupported video codec: ${options.video.codec}`);
 			}
 
+			if (!Number.isInteger(options.video.width) || options.video.width <= 0) {
+				throw new TypeError(`Invalid video width: ${options.video.width}. Must be a positive integer.`);
+			}
+
+			if (!Number.isInteger(options.video.height) || options.video.height <= 0) {
+				throw new TypeError(`Invalid video height: ${options.video.height}. Must be a positive integer.`);
+			}
+
 			const videoRotation = options.video.rotation;
 			if (typeof videoRotation === 'number' && ![0, 90, 180, 270].includes(videoRotation)) {
 				throw new TypeError(`Invalid video rotation: ${videoRotation}. Has to be 0, 90, 180 or 270.`);
@@ -166,8 +174,22 @@ export class Muxer<T extends Target> {
 			}
 		}
 
-		if (options.audio && !SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
-			throw new TypeError(`Unsupported audio codec: ${options.audio.codec}`);
+		if (options.audio) {
+			if (!SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
+				throw new TypeError(`Unsupported audio codec: ${options.audio.codec}`);
+			}
+
+			if (!Number.isInteger(options.audio.numberOfChannels) || options.audio.numberOfChannels <= 0) {
+				throw new TypeError(
+					`Invalid number of audio channels: ${options.audio.numberOfChannels}. Must be a positive integer.`
+				);
+			}
+
+			if (!Number.isInteger(options.audio.sampleRate) || options.audio.sampleRate <= 0) {
+				throw new TypeError(
+					`Invalid audio sample rate: ${options.audio.sampleRate}. Must be a positive integer.`
+				);
+			}
 		}
 
 		if (options.firstTimestampBehavior && !FIRST_TIMESTAMP_BEHAVIORS.includes(options.firstTimestampBehavior)) {
@@ -175,12 +197,26 @@ export class Muxer<T extends Target> {
 		}
 
 		if (typeof options.fastStart === 'object') {
-			if (options.video && options.fastStart.expectedVideoChunks === undefined) {
-				throw new TypeError(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
+			if (options.video) {
+				if (options.fastStart.expectedVideoChunks === undefined) {
+					throw new TypeError(`'fastStart' is an object but is missing property 'expectedVideoChunks'.`);
+				} else if (
+					!Number.isInteger(options.fastStart.expectedVideoChunks)
+					|| options.fastStart.expectedVideoChunks < 0
+				) {
+					throw new TypeError(`'expectedVideoChunks' must be a non-negative integer.`);
+				}
 			}
 
-			if (options.audio && options.fastStart.expectedAudioChunks === undefined) {
-				throw new TypeError(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
+			if (options.audio) {
+				if (options.fastStart.expectedAudioChunks === undefined) {
+					throw new TypeError(`'fastStart' is an object but is missing property 'expectedAudioChunks'.`);
+				} else if (
+					!Number.isInteger(options.fastStart.expectedAudioChunks)
+					|| options.fastStart.expectedAudioChunks < 0
+				) {
+					throw new TypeError(`'expectedAudioChunks' must be a non-negative integer.`);
+				}
 			}
 		} else if (![false, 'in-memory', 'fragmented'].includes(options.fastStart)) {
 			throw new TypeError(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
