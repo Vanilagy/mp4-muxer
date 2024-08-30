@@ -1,4 +1,5 @@
 import * as esbuild from 'esbuild';
+import process from 'node:process';
 
 const baseConfig = {
 	entryPoints: ['src/index.ts'],
@@ -43,4 +44,23 @@ let ctxEsmMinified = await esbuild.context({
 	minify: true
 });
 
-await Promise.all([ctxUmd.watch(), ctxEsm.watch(), ctxUmdMinified.watch(), ctxEsmMinified.watch()]);
+if (process.argv[2] === '--watch') {
+	await Promise.all([
+		ctxUmd.watch(),
+		ctxEsm.watch(),
+		ctxUmdMinified.watch(),
+		ctxEsmMinified.watch(),
+	]);
+} else {
+	ctxUmd.rebuild();
+	ctxEsm.rebuild();
+	ctxUmdMinified.rebuild();
+	ctxEsmMinified.rebuild();
+
+	await Promise.all([
+		ctxUmd.dispose(),
+		ctxEsm.dispose(),
+		ctxUmdMinified.dispose(),
+		ctxEsmMinified.dispose(),
+	]);
+}
