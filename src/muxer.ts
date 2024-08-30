@@ -19,7 +19,8 @@ interface VideoOptions {
 	codec: typeof SUPPORTED_VIDEO_CODECS[number],
 	width: number,
 	height: number,
-	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
+	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix,
+	frameRate?: number
 }
 
 interface AudioOptions {
@@ -172,6 +173,15 @@ export class Muxer<T extends Target> {
 			) {
 				throw new TypeError(`Invalid video transformation matrix: ${videoRotation.join()}`);
 			}
+
+			if (
+				options.video.frameRate !== undefined &&
+				(!Number.isInteger(options.video.frameRate) || options.video.frameRate <= 0)
+			) {
+				throw new TypeError(
+					`Invalid video frame rate: ${options.video.frameRate}. Must be a positive integer.`
+				);
+			}
 		}
 
 		if (options.audio) {
@@ -292,7 +302,8 @@ export class Muxer<T extends Target> {
 					rotation: this.#options.video.rotation ?? 0,
 					decoderConfig: null
 				},
-				timescale: 11520, // Timescale used by FFmpeg, contains many common frame rates as factors
+				// The fallback contains many common frame rates as factors
+				timescale: this.#options.video.frameRate ?? 57600,
 				samples: [],
 				finalizedChunks: [],
 				currentChunk: null,

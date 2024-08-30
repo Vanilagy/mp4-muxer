@@ -16,7 +16,13 @@ declare interface VideoOptions {
 	/**
 	 * The clockwise rotation of the video in degrees, or a transformation matrix.
 	 */
-	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
+	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix,
+	/**
+	 * The frame rate of the video. When provided, timestamps will be rounded according to this value. It is still the
+	 * responsibility of the developer to supply just enough frames to maintain this frame rate without gaps or
+	 * duplicate frames.
+	 */
+	frameRate?: number
 }
 
 declare interface AudioOptions {

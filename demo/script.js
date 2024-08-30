@@ -3,6 +3,7 @@ const ctx = canvas.getContext('2d', { desynchronized: true });
 const startRecordingButton = document.querySelector('#start-recording');
 const endRecordingButton = document.querySelector('#end-recording');
 const recordingStatus = document.querySelector('#recording-status');
+const videoFrameRate = 30;
 
 /** RECORDING & MUXING STUFF */
 
@@ -48,7 +49,8 @@ const startRecording = async () => {
 		video: {
 			codec: 'avc',
 			width: canvas.width,
-			height: canvas.height
+			height: canvas.height,
+			frameRate: videoFrameRate
 		},
 		audio: audioTrack ? {
 			codec: 'aac',
@@ -105,15 +107,15 @@ const startRecording = async () => {
 	framesGenerated = 0;
 
 	encodeVideoFrame();
-	intervalId = setInterval(encodeVideoFrame, 1000/30);
+	intervalId = setInterval(encodeVideoFrame, 1000 / videoFrameRate);
 };
 startRecordingButton.addEventListener('click', startRecording);
 
 const encodeVideoFrame = () => {
 	let elapsedTime = document.timeline.currentTime - startTime;
 	let frame = new VideoFrame(canvas, {
-		timestamp: framesGenerated * 1e6 / 30, // Ensure equally-spaced frames every 1/30th of a second
-		duration: 1e6 / 30
+		timestamp: framesGenerated * 1e6 / videoFrameRate, // Ensure equally-spaced frames every 1/30th of a second
+		duration: 1e6 / videoFrameRate
 	});
 	framesGenerated++;
 

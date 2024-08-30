@@ -1442,6 +1442,11 @@ var Mp4Muxer = (() => {
       } else if (Array.isArray(videoRotation) && (videoRotation.length !== 9 || videoRotation.some((value) => typeof value !== "number"))) {
         throw new TypeError(`Invalid video transformation matrix: ${videoRotation.join()}`);
       }
+      if (options.video.frameRate !== void 0 && (!Number.isInteger(options.video.frameRate) || options.video.frameRate <= 0)) {
+        throw new TypeError(
+          `Invalid video frame rate: ${options.video.frameRate}. Must be a positive integer.`
+        );
+      }
     }
     if (options.audio) {
       if (!SUPPORTED_AUDIO_CODECS2.includes(options.audio.codec)) {
@@ -1534,8 +1539,8 @@ var Mp4Muxer = (() => {
           rotation: __privateGet(this, _options).video.rotation ?? 0,
           decoderConfig: null
         },
-        timescale: 11520,
-        // Timescale used by FFmpeg, contains many common frame rates as factors
+        // The fallback contains many common frame rates as factors
+        timescale: __privateGet(this, _options).video.frameRate ?? 57600,
         samples: [],
         finalizedChunks: [],
         currentChunk: null,

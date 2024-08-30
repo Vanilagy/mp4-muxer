@@ -96,7 +96,11 @@ interface MuxerOptions {
         height: number,
 
         // Adds rotation metadata to the file
-        rotation?: 0 | 90 | 180 | 270 | TransformationMatrix
+        rotation?: 0 | 90 | 180 | 270 | TransformationMatrix,
+
+        // Specifies the expected frame rate of the video track. When present,
+        // timestamps will be rounded according to this value.
+        frameRate?: number
     },
 
     audio?: {
