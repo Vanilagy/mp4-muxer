@@ -19,7 +19,8 @@
     "build/mp4-muxer.d.ts"
   ],
   "scripts": {
-    "watch": "node build.mjs",
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
     "check": "npx tsc --noEmit --skipLibCheck",
     "lint": "npx eslint src demo build"
   },
