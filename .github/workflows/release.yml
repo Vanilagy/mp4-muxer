@@ -36,7 +36,7 @@ jobs:
         run: npm ci
 
       - name: Build the package
-        run: npm build
+        run: npm run build
 
       - name: Create Publish to npm
         run: npm publish --provenance
