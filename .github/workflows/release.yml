@@ -23,7 +23,7 @@ jobs:
       # Get the 'version' field out of the package.json file
       - name: Get package.json version
         id: package-json-version
-        run: echo "version=$(cat package.json | jq '.version' --raw-output)" >> $GITHUB_OUTPUT
+        run: echo "version=v$(cat package.json | jq '.version' --raw-output)" >> $GITHUB_OUTPUT
 
       # Abort if the version in the package.json file doesn't match the tag name of the release
       - name: Check package.json version against tag name
