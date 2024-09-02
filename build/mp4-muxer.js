@@ -533,20 +533,29 @@ var Mp4Muxer = (() => {
       // data
     ]);
   };
-  var dOps = (track) => box("dOps", [
-    u8(0),
-    // Version
-    u8(track.info.numberOfChannels),
-    // OutputChannelCount
-    u16(3840),
-    // PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
-    u32(track.info.sampleRate),
-    // InputSampleRate
-    fixed_8_8(0),
-    // OutputGain
-    u8(0)
-    // ChannelMappingFamily
-  ]);
+  var dOps = (track) => {
+    let preskip = 3840;
+    let gain = 0;
+    const description = track.info.decoderConfig.description;
+    if (description) {
+      const view2 = new DataView(ArrayBuffer.isView(description) ? description.buffer : description);
+      preskip = view2.getUint16(10, true);
+      gain = view2.getInt16(14, true);
+    }
+    return box("dOps", [
+      u8(0),
+      // Version
+      u8(track.info.numberOfChannels),
+      // OutputChannelCount
+      u16(preskip),
+      u32(track.info.sampleRate),
+      // InputSampleRate
+      fixed_8_8(gain),
+      // OutputGain
+      u8(0)
+      // ChannelMappingFamily
+    ]);
+  };
   var stts = (track) => {
     return fullBox("stts", 0, 0, [
       u32(track.timeToSampleTable.length),

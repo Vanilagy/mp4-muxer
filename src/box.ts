@@ -445,14 +445,29 @@ export const esds = (track: Track) => {
 };
 
 /** Opus Specific Box. */
-export const dOps = (track: AudioTrack) => box('dOps', [
-	u8(0), // Version
-	u8(track.info.numberOfChannels), // OutputChannelCount
-	u16(3840), // PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
-	u32(track.info.sampleRate), // InputSampleRate
-	fixed_8_8(0), // OutputGain
-	u8(0) // ChannelMappingFamily
-]);
+export const dOps = (track: AudioTrack) => {
+	// Default PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
+	let preskip = 3840;
+	let gain = 0;
+
+	// Read preskip and from codec private data from the encoder
+	// https://www.rfc-editor.org/rfc/rfc7845#section-5
+	const description = track.info.decoderConfig.description;
+	if (description) {
+		const view = new DataView(ArrayBuffer.isView(description) ? description.buffer : description);
+		preskip = view.getUint16(10, true);
+		gain = view.getInt16(14, true);
+	}
+
+	return box('dOps', [
+		u8(0), // Version
+		u8(track.info.numberOfChannels), // OutputChannelCount
+		u16(preskip),
+		u32(track.info.sampleRate), // InputSampleRate
+		fixed_8_8(gain), // OutputGain
+		u8(0) // ChannelMappingFamily
+	]);
+};
 
 /**
  * Time-To-Sample Box: Stores duration information for a media's samples, providing a mapping from a time in a media
