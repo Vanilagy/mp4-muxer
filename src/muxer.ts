@@ -11,7 +11,7 @@ import {
 
 export const GLOBAL_TIMESCALE = 1000;
 export const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc', 'vp9', 'av1'] as const;
-export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus'] as const;
+export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus', 'mp3'] as const;
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'cross-track-offset'] as const;
 

@@ -444,6 +444,15 @@ export const esds = (track: Track) => {
 	]);
 };
 
+/** MPEG1 Specific Box */
+export const mp3 = (track: AudioTrack) => box('mp3 ', [
+	u8(0), // Version
+	u8(track.info.numberOfChannels), // Channels
+	u16(0), // Pre-skip
+	u16(track.info.sampleRate), // Sample rate
+	u16(0) // Output gain
+]);
+
 /** Opus Specific Box. */
 export const dOps = (track: AudioTrack) => {
 	// Default PreSkip, should be at least 80 milliseconds worth of playback, measured in 48000 Hz samples
@@ -746,10 +755,12 @@ const VIDEO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_VIDEO_CODECS[num
 
 const AUDIO_CODEC_TO_BOX_NAME: Record<typeof SUPPORTED_AUDIO_CODECS[number], string> = {
 	'aac': 'mp4a',
-	'opus': 'Opus'
+	'opus': 'Opus',
+	'mp3': 'mp3 '
 };
 
 const AUDIO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_AUDIO_CODECS[number], (track: AudioTrack) => Box> = {
 	'aac': esds,
-	'opus': dOps
+	'opus': dOps,
+	'mp3': mp3
 };

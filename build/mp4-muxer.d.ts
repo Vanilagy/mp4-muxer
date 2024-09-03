@@ -29,7 +29,7 @@ declare interface AudioOptions {
 	/**
 	 * The codec of the encoded audio chunks.
 	 */
-	codec: 'aac' | 'opus',
+	codec: 'aac' | 'opus' | 'mp3',
 	/**
 	 * The number of audio channels in the audio track.
 	 */
