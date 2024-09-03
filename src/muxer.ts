@@ -10,13 +10,20 @@ import {
 } from './writer';
 
 export const GLOBAL_TIMESCALE = 1000;
+
 export const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc', 'vp9', 'av1'] as const;
+export type SupportedVideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
+
 export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus', 'mp3'] as const;
+export type SupportedAudioCodec = (typeof SUPPORTED_AUDIO_CODECS)[number];
+
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
+
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'cross-track-offset'] as const;
+type FirstTimestampBehavior = (typeof FIRST_TIMESTAMP_BEHAVIORS)[number];
 
 interface VideoOptions {
-	codec: typeof SUPPORTED_VIDEO_CODECS[number],
+	codec: SupportedVideoCodec,
 	width: number,
 	height: number,
 	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix,
@@ -24,7 +31,7 @@ interface VideoOptions {
 }
 
 interface AudioOptions {
-	codec: typeof SUPPORTED_AUDIO_CODECS[number],
+	codec: SupportedAudioCodec,
 	numberOfChannels: number,
 	sampleRate: number
 }
@@ -37,7 +44,7 @@ type Mp4MuxerOptions<T extends Target> =  {
 		expectedVideoChunks?: number,
 		expectedAudioChunks?: number
 	},
-	firstTimestampBehavior?: typeof FIRST_TIMESTAMP_BEHAVIORS[number]
+	firstTimestampBehavior?: FirstTimestampBehavior
 };
 
 export interface Track {
