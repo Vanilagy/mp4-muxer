@@ -33,9 +33,11 @@ type Mp4MuxerOptions<T extends Target> =  {
 	target: T,
 	video?: VideoOptions,
 	audio?: AudioOptions,
+	data?: boolean,
 	fastStart: false | 'in-memory' | 'fragmented' | {
 		expectedVideoChunks?: number,
 		expectedAudioChunks?: number
+		expectedDataChunks?: number
 	},
 	firstTimestampBehavior?: typeof FIRST_TIMESTAMP_BEHAVIORS[number]
 };
@@ -55,6 +57,10 @@ export interface Track {
 		numberOfChannels: number,
 		sampleRate: number,
 		decoderConfig: AudioDecoderConfig
+	} | {
+		type: 'data',
+		content_encoding: string,
+		mime_format: string
 	},
 	timescale: number,
 	samples: Sample[],
@@ -77,6 +83,7 @@ export interface Track {
 
 export type VideoTrack = Track & { info: { type: 'video' } };
 export type AudioTrack = Track & { info: { type: 'audio' } };
+export type DataTrack = Track & { info: { type: 'data' } };
 
 export interface Sample {
 	presentationTimestamp: number,
@@ -106,6 +113,7 @@ export class Muxer<T extends Target> {
 
 	#videoTrack: Track = null;
 	#audioTrack: Track = null;
+	#dataTrack: Track = null;
 	#creationTime = Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET;
 	#finalizedChunks: Chunk[] = [];
 
@@ -113,6 +121,7 @@ export class Muxer<T extends Target> {
 	#nextFragmentNumber = 1;
 	#videoSampleQueue: Sample[] = [];
 	#audioSampleQueue: Sample[] = [];
+	#dataSampleQueue: Sample[] = [];
 
 	#finalized = false;
 
@@ -291,9 +300,11 @@ export class Muxer<T extends Target> {
 	}
 
 	#prepareTracks() {
+		let trackCounter = 1;
+
 		if (this.#options.video) {
 			this.#videoTrack = {
-				id: 1,
+				id: trackCounter++,
 				info: {
 					type: 'video',
 					codec: this.#options.video.codec,
@@ -326,7 +337,7 @@ export class Muxer<T extends Target> {
 			);
 
 			this.#audioTrack = {
-				id: this.#options.video ? 2 : 1,
+				id: trackCounter++,
 				info: {
 					type: 'audio',
 					codec: this.#options.audio.codec,
@@ -340,6 +351,28 @@ export class Muxer<T extends Target> {
 					}
 				},
 				timescale: this.#options.audio.sampleRate,
+				samples: [],
+				finalizedChunks: [],
+				currentChunk: null,
+				firstDecodeTimestamp: undefined,
+				lastDecodeTimestamp: -1,
+				timeToSampleTable: [],
+				compositionTimeOffsetTable: [],
+				lastTimescaleUnits: null,
+				lastSample: null,
+				compactlyCodedChunkTable: []
+			};
+		}
+
+		if (this.#options.data) {
+			this.#dataTrack = {
+				id: trackCounter++,
+				info: {
+					type: 'data',
+					content_encoding: 'binary',
+					mime_format: 'application/data'
+				},
+				timescale: 0.001,
 				samples: [],
 				finalizedChunks: [],
 				currentChunk: null,
@@ -555,6 +588,41 @@ export class Muxer<T extends Target> {
 		} else {
 			this.#addSampleToTrack(this.#audioTrack, audioSample);
 		}
+	}
+
+	addDataChunkRaw(
+		data: Uint8Array,
+		type: 'key' | 'delta',
+		timestamp: number,
+		duration: number
+	) {
+		if (!(data instanceof Uint8Array)) {
+			throw new TypeError("addDataChunkRaw's first argument (data) must be an instance of Uint8Array.");
+		}
+		if (type !== 'key' && type !== 'delta') {
+			throw new TypeError("addDataChunkRaw's second argument (type) must be either 'key' or 'delta'.");
+		}
+		if (!Number.isFinite(timestamp) || timestamp < 0) {
+			throw new TypeError("addDataChunkRaw's third argument (timestamp) must be a non-negative real number.");
+		}
+		if (!Number.isFinite(duration) || duration < 0) {
+			throw new TypeError("addDataChunkRaw's fourth argument (duration) must be a non-negative real number.");
+		}
+
+		this.#ensureNotFinalized();
+		if (!this.#options.data) throw new Error('No data track declared.');
+
+		if (
+			typeof this.#options.fastStart === 'object' &&
+			this.#dataTrack.samples.length === this.#options.fastStart.expectedDataChunks
+		) {
+			throw new Error(`Cannot add more data chunks than specified in 'fastStart' (${
+				this.#options.fastStart.expectedDataChunks
+			}).`);
+		}
+
+		let dataSample = this.#createSampleForTrack(this.#dataTrack, data, type, timestamp, duration);
+		this.#addSampleToTrack(this.#dataTrack, dataSample);
 	}
 
 	#createSampleForTrack(
@@ -782,7 +850,8 @@ export class Muxer<T extends Target> {
 			throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");
 		}
 
-		let tracks = [this.#videoTrack, this.#audioTrack].filter((track) => track && track.currentChunk);
+		let tracks = [this.#videoTrack, this.#audioTrack, this.#dataTrack].filter((track) =>
+			track && track.currentChunk);
 		if (tracks.length === 0) return;
 
 		let fragmentNumber = this.#nextFragmentNumber++;
@@ -871,14 +940,16 @@ export class Muxer<T extends Target> {
 		if (this.#options.fastStart === 'fragmented') {
 			for (let videoSample of this.#videoSampleQueue) this.#addSampleToTrack(this.#videoTrack, videoSample);
 			for (let audioSample of this.#audioSampleQueue) this.#addSampleToTrack(this.#audioTrack, audioSample);
+			for (let dataSample of this.#dataSampleQueue) this.#addSampleToTrack(this.#dataTrack, dataSample);
 
 			this.#finalizeFragment(false); // Don't flush the last fragment as we will flush it with the mfra box soon
 		} else {
 			if (this.#videoTrack) this.#finalizeCurrentChunk(this.#videoTrack);
 			if (this.#audioTrack) this.#finalizeCurrentChunk(this.#audioTrack);
+			if (this.#dataTrack) this.#finalizeCurrentChunk(this.#dataTrack);
 		}
 
-		let tracks = [this.#videoTrack, this.#audioTrack].filter(Boolean);
+		let tracks = [this.#videoTrack, this.#audioTrack, this.#dataTrack].filter(Boolean);
 
 		if (this.#options.fastStart === 'in-memory') {
 			let mdatSize: number;

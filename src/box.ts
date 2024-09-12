@@ -1,5 +1,6 @@
 import {
 	AudioTrack,
+	DataTrack,
 	GLOBAL_TIMESCALE,
 	SUPPORTED_AUDIO_CODECS,
 	SUPPORTED_VIDEO_CODECS,
@@ -191,7 +192,7 @@ export const tkhd = (
 /** Media Box: Describes and define a track's media type and sample data. */
 export const mdia = (track: Track, creationTime: number) => box('mdia', null, [
 	mdhd(track, creationTime),
-	hdlr(track.info.type === 'video' ? 'vide' : 'soun'),
+	hdlr(track.info.type === 'video' ? 'vide' : track.info.type === 'audio' ? 'soun' : 'meta'),
 	minf(track)
 ]);
 
@@ -234,7 +235,7 @@ export const hdlr = (componentSubtype: string) => fullBox('hdlr', 0, 0, [
  * information to map from media time to media data and to process the media data.
  */
 export const minf = (track: Track) => box('minf', null, [
-	track.info.type === 'video' ? vmhd() : smhd(),
+	track.info.type === 'video' ? vmhd() : track.info.type === 'audio' ? smhd() : nmhd(),
 	dinf(),
 	stbl(track)
 ]);
@@ -252,6 +253,9 @@ export const smhd = () => fullBox('smhd', 0, 0, [
 	u16(0), // Balance
 	u16(0) // Reserved
 ]);
+
+/** Null Media Information Header Box, for metadata tracks. */
+export const nmhd = () => fullBox('nmhd', 0, 0, []);
 
 /**
  * Data Information Box: Contains information specifying the data handler component that provides access to the
@@ -303,10 +307,12 @@ export const stsd = (track: Track) => fullBox('stsd', 0, 0, [
 			VIDEO_CODEC_TO_BOX_NAME[track.info.codec],
 			track as VideoTrack
 		)
-		: soundSampleDescription(
-			AUDIO_CODEC_TO_BOX_NAME[track.info.codec],
-			track as AudioTrack
-		)
+		: track.info.type === 'audio' ?
+			soundSampleDescription(
+				AUDIO_CODEC_TO_BOX_NAME[track.info.codec],
+				track as AudioTrack
+			)
+			: mett(track as DataTrack)
 ]);
 
 /** Video Sample Description Box: Contains information that defines how to interpret video media data. */
@@ -418,6 +424,16 @@ export const soundSampleDescription = (
 	AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
 ]);
 
+/** Data Sample Description Box. */
+export const mett = (
+	track: DataTrack
+) => {
+	return box('mett', [
+		ascii(track.info.content_encoding, true),
+		ascii(track.info.mime_format, true)
+	]);
+};
+
 /** MPEG-4 Elementary Stream Descriptor Box. */
 export const esds = (track: Track) => {
 	let description = new Uint8Array(track.info.decoderConfig.description as ArrayBuffer);
@@ -521,7 +537,7 @@ export const stsz = (track: Track) => fullBox('stsz', 0, 0, [
 
 /** Chunk Offset Box: Identifies the location of each chunk of data in the media's data stream, relative to the file. */
 export const stco = (track: Track) => {
-	if (track.finalizedChunks.length > 0 && last(track.finalizedChunks).offset >= 2**32) {
+	if (track.finalizedChunks.length > 0 && last(track.finalizedChunks).offset >= 2 ** 32) {
 		// If the file is large, use the co64 box
 		return fullBox('co64', 0, 0, [
 			u32(track.finalizedChunks.length), // Number of entries
