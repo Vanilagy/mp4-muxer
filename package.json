@@ -34,11 +34,10 @@
     "url": "https://github.com/Vanilagy/mp4-muxer/issues"
   },
   "homepage": "https://github.com/Vanilagy/mp4-muxer#readme",
-  "dependencies": {
-    "@types/dom-webcodecs": "^0.1.6",
-    "@types/wicg-file-system-access": "^2020.9.5"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "@types/dom-webcodecs": "^0.1.6",
+    "@types/wicg-file-system-access": "^2020.9.5",
     "@types/node": "^18.15.0",
     "@typescript-eslint/eslint-plugin": "^5.54.1",
     "@typescript-eslint/parser": "^5.54.1",

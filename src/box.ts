@@ -1,9 +1,9 @@
 import {
 	AudioTrack,
 	GLOBAL_TIMESCALE,
-	SUPPORTED_AUDIO_CODECS,
-	SUPPORTED_VIDEO_CODECS,
 	Sample,
+	SupportedAudioCodec,
+	SupportedVideoCodec,
 	Track,
 	VideoTrack
 } from './muxer';
@@ -730,26 +730,26 @@ export const mfro = () => {
 	]);
 };
 
-const VIDEO_CODEC_TO_BOX_NAME: Record<typeof SUPPORTED_VIDEO_CODECS[number], string> = {
+const VIDEO_CODEC_TO_BOX_NAME: Record<SupportedVideoCodec, string> = {
 	'avc': 'avc1',
 	'hevc': 'hvc1',
 	'vp9': 'vp09',
 	'av1': 'av01'
 };
 
-const VIDEO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_VIDEO_CODECS[number], (track: VideoTrack) => Box> = {
+const VIDEO_CODEC_TO_CONFIGURATION_BOX: Record<SupportedVideoCodec, (track: VideoTrack) => Box> = {
 	'avc': avcC,
 	'hevc': hvcC,
 	'vp9': vpcC,
 	'av1': av1C
 };
 
-const AUDIO_CODEC_TO_BOX_NAME: Record<typeof SUPPORTED_AUDIO_CODECS[number], string> = {
+const AUDIO_CODEC_TO_BOX_NAME: Record<SupportedAudioCodec, string> = {
 	'aac': 'mp4a',
 	'opus': 'Opus'
 };
 
-const AUDIO_CODEC_TO_CONFIGURATION_BOX: Record<typeof SUPPORTED_AUDIO_CODECS[number], (track: AudioTrack) => Box> = {
+const AUDIO_CODEC_TO_CONFIGURATION_BOX: Record<SupportedAudioCodec, (track: AudioTrack) => Box> = {
 	'aac': esds,
 	'opus': dOps
 };
