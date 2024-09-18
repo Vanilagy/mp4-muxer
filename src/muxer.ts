@@ -10,16 +10,13 @@ import {
 } from './writer';
 
 export const GLOBAL_TIMESCALE = 1000;
-
 export const SUPPORTED_VIDEO_CODECS = ['avc', 'hevc', 'vp9', 'av1'] as const;
-export type SupportedVideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
-
 export const SUPPORTED_AUDIO_CODECS = ['aac', 'opus'] as const;
-export type SupportedAudioCodec = (typeof SUPPORTED_AUDIO_CODECS)[number];
-
 const TIMESTAMP_OFFSET = 2_082_844_800; // Seconds between Jan 1 1904 and Jan 1 1970
-
 const FIRST_TIMESTAMP_BEHAVIORS = ['strict',  'offset', 'cross-track-offset'] as const;
+
+export type SupportedVideoCodec = (typeof SUPPORTED_VIDEO_CODECS)[number];
+export type SupportedAudioCodec = (typeof SUPPORTED_AUDIO_CODECS)[number];
 type FirstTimestampBehavior = (typeof FIRST_TIMESTAMP_BEHAVIORS)[number];
 
 interface VideoOptions {
