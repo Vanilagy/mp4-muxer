@@ -452,9 +452,15 @@ export const dOps = (track: AudioTrack) => {
 
 	// Read preskip and from codec private data from the encoder
 	// https://www.rfc-editor.org/rfc/rfc7845#section-5
-	const description = track.info.decoderConfig.description;
+	const description = track.info.decoderConfig?.description;
 	if (description) {
-		const view = new DataView(ArrayBuffer.isView(description) ? description.buffer : description);
+		if (description.byteLength < 18) {
+			throw new TypeError('Invalid decoder description provided for Opus; must be at least 18 bytes long.');
+		}
+
+		const view = ArrayBuffer.isView(description)
+			? new DataView(description.buffer, description.byteOffset, description.byteLength)
+			: new DataView(description);
 		preskip = view.getUint16(10, true);
 		gain = view.getInt16(14, true);
 	}

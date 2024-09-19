@@ -1,2 +1,2 @@
 export { Muxer } from './muxer';
-export * from './target';
+export { ArrayBufferTarget, StreamTarget, FileSystemWritableFileStreamTarget } from './target';

@@ -508,9 +508,12 @@ var esds = (track) => {
 var dOps = (track) => {
   let preskip = 3840;
   let gain = 0;
-  const description = track.info.decoderConfig.description;
+  const description = track.info.decoderConfig?.description;
   if (description) {
-    const view2 = new DataView(ArrayBuffer.isView(description) ? description.buffer : description);
+    if (description.byteLength < 18) {
+      throw new TypeError("Invalid decoder description provided for Opus; must be at least 18 bytes long.");
+    }
+    const view2 = ArrayBuffer.isView(description) ? new DataView(description.buffer, description.byteOffset, description.byteLength) : new DataView(description);
     preskip = view2.getUint16(10, true);
     gain = view2.getInt16(14, true);
   }
@@ -781,13 +784,19 @@ var AUDIO_CODEC_TO_CONFIGURATION_BOX = {
 };
 
 // src/target.ts
-var ArrayBufferTarget = class {
+var isTarget = Symbol("isTarget");
+var Target = class {
+};
+isTarget;
+var ArrayBufferTarget = class extends Target {
   constructor() {
+    super(...arguments);
     this.buffer = null;
   }
 };
-var StreamTarget = class {
+var StreamTarget = class extends Target {
   constructor(options) {
+    super();
     this.options = options;
     if (typeof options !== "object") {
       throw new TypeError("StreamTarget requires an options object to be passed to its constructor.");
@@ -810,8 +819,9 @@ var StreamTarget = class {
     }
   }
 };
-var FileSystemWritableFileStreamTarget = class {
+var FileSystemWritableFileStreamTarget = class extends Target {
   constructor(stream, options) {
+    super();
     this.stream = stream;
     this.options = options;
     if (!(stream instanceof FileSystemWritableFileStream)) {
@@ -1138,8 +1148,8 @@ var FileSystemWritableFileStreamTargetWriter = class extends ChunkedStreamTarget
 
 // src/muxer.ts
 var GLOBAL_TIMESCALE = 1e3;
-var SUPPORTED_VIDEO_CODECS2 = ["avc", "hevc", "vp9", "av1"];
-var SUPPORTED_AUDIO_CODECS2 = ["aac", "opus"];
+var SUPPORTED_VIDEO_CODECS = ["avc", "hevc", "vp9", "av1"];
+var SUPPORTED_AUDIO_CODECS = ["aac", "opus"];
 var TIMESTAMP_OFFSET = 2082844800;
 var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "cross-track-offset"];
 var _options, _writer, _ftypSize, _mdat, _videoTrack, _audioTrack, _creationTime, _finalizedChunks, _nextFragmentNumber, _videoSampleQueue, _audioSampleQueue, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _computeMoovSizeUpperBound, computeMoovSizeUpperBound_fn, _prepareTracks, prepareTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _createSampleForTrack, createSampleForTrack_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _finalizeCurrentChunk, finalizeCurrentChunk_fn, _finalizeFragment, finalizeFragment_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
@@ -1407,8 +1417,11 @@ validateOptions_fn = function(options) {
   if (typeof options !== "object") {
     throw new TypeError("The muxer requires an options object to be passed to its constructor.");
   }
+  if (!(options.target instanceof Target)) {
+    throw new TypeError("The target must be provided and an instance of Target.");
+  }
   if (options.video) {
-    if (!SUPPORTED_VIDEO_CODECS2.includes(options.video.codec)) {
+    if (!SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
       throw new TypeError(`Unsupported video codec: ${options.video.codec}`);
     }
     if (!Number.isInteger(options.video.width) || options.video.width <= 0) {
@@ -1430,7 +1443,7 @@ validateOptions_fn = function(options) {
     }
   }
   if (options.audio) {
-    if (!SUPPORTED_AUDIO_CODECS2.includes(options.audio.codec)) {
+    if (!SUPPORTED_AUDIO_CODECS.includes(options.audio.codec)) {
       throw new TypeError(`Unsupported audio codec: ${options.audio.codec}`);
     }
     if (!Number.isInteger(options.audio.numberOfChannels) || options.audio.numberOfChannels <= 0) {
@@ -1535,13 +1548,6 @@ prepareTracks_fn = function() {
     });
   }
   if (__privateGet(this, _options).audio) {
-    let guessedCodecPrivate = __privateMethod(this, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn).call(
-      this,
-      2,
-      // Object type for AAC-LC, since it's the most common
-      __privateGet(this, _options).audio.sampleRate,
-      __privateGet(this, _options).audio.numberOfChannels
-    );
     __privateSet(this, _audioTrack, {
       id: __privateGet(this, _options).video ? 2 : 1,
       info: {
@@ -1549,12 +1555,7 @@ prepareTracks_fn = function() {
         codec: __privateGet(this, _options).audio.codec,
         numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
         sampleRate: __privateGet(this, _options).audio.sampleRate,
-        decoderConfig: {
-          codec: __privateGet(this, _options).audio.codec,
-          description: guessedCodecPrivate,
-          numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
-          sampleRate: __privateGet(this, _options).audio.sampleRate
-        }
+        decoderConfig: null
       },
       timescale: __privateGet(this, _options).audio.sampleRate,
       samples: [],
@@ -1568,6 +1569,21 @@ prepareTracks_fn = function() {
       lastSample: null,
       compactlyCodedChunkTable: []
     });
+    if (__privateGet(this, _options).audio.codec === "aac") {
+      let guessedCodecPrivate = __privateMethod(this, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn).call(
+        this,
+        2,
+        // Object type for AAC-LC, since it's the most common
+        __privateGet(this, _options).audio.sampleRate,
+        __privateGet(this, _options).audio.numberOfChannels
+      );
+      __privateGet(this, _audioTrack).info.decoderConfig = {
+        codec: __privateGet(this, _options).audio.codec,
+        description: guessedCodecPrivate,
+        numberOfChannels: __privateGet(this, _options).audio.numberOfChannels,
+        sampleRate: __privateGet(this, _options).audio.sampleRate
+      };
+    }
   }
 };
 _generateMpeg4AudioSpecificConfig = new WeakSet();

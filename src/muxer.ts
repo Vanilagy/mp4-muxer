@@ -155,6 +155,10 @@ export class Muxer<T extends Target> {
 			throw new TypeError('The muxer requires an options object to be passed to its constructor.');
 		}
 
+		if (!(options.target instanceof Target)) {
+			throw new TypeError('The target must be provided and an instance of Target.');
+		}
+
 		if (options.video) {
 			if (!SUPPORTED_VIDEO_CODECS.includes(options.video.codec)) {
 				throw new TypeError(`Unsupported video codec: ${options.video.codec}`);
@@ -322,13 +326,6 @@ export class Muxer<T extends Target> {
 		}
 
 		if (this.#options.audio) {
-			// For the case that we don't get any further decoder details, we can still make a pretty educated guess:
-			let guessedCodecPrivate = this.#generateMpeg4AudioSpecificConfig(
-				2, // Object type for AAC-LC, since it's the most common
-				this.#options.audio.sampleRate,
-				this.#options.audio.numberOfChannels
-			);
-
 			this.#audioTrack = {
 				id: this.#options.video ? 2 : 1,
 				info: {
@@ -336,12 +333,7 @@ export class Muxer<T extends Target> {
 					codec: this.#options.audio.codec,
 					numberOfChannels: this.#options.audio.numberOfChannels,
 					sampleRate: this.#options.audio.sampleRate,
-					decoderConfig: {
-						codec: this.#options.audio.codec,
-						description: guessedCodecPrivate,
-						numberOfChannels: this.#options.audio.numberOfChannels,
-						sampleRate: this.#options.audio.sampleRate
-					}
+					decoderConfig: null
 				},
 				timescale: this.#options.audio.sampleRate,
 				samples: [],
@@ -355,6 +347,22 @@ export class Muxer<T extends Target> {
 				lastSample: null,
 				compactlyCodedChunkTable: []
 			};
+
+			if (this.#options.audio.codec === 'aac') {
+				// For the case that we don't get any further decoder details, we can still make an educated guess:
+				let guessedCodecPrivate = this.#generateMpeg4AudioSpecificConfig(
+					2, // Object type for AAC-LC, since it's the most common
+					this.#options.audio.sampleRate,
+					this.#options.audio.numberOfChannels
+				);
+
+				this.#audioTrack.info.decoderConfig = {
+					codec: this.#options.audio.codec,
+					description: guessedCodecPrivate,
+					numberOfChannels: this.#options.audio.numberOfChannels,
+					sampleRate: this.#options.audio.sampleRate
+				};
+			}
 		}
 	}
 
