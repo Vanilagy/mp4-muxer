@@ -1249,7 +1249,6 @@ var Mp4Muxer = (() => {
         lastSample: null,
         compactlyCodedChunkTable: []
       });
-      console.log("DATA TRACK ID", __privateGet(this, _trackIdCounter));
       return __privateGet(this, _trackIdCounter);
     }
     addVideoChunk(sample, meta, timestamp, compositionTimeOffset) {
@@ -1617,7 +1616,6 @@ var Mp4Muxer = (() => {
         compactlyCodedChunkTable: []
       });
     }
-    console.log("VIDEO TRACK ID", __privateGet(this, _trackIdCounter));
     if (__privateGet(this, _options).audio) {
       let guessedCodecPrivate = __privateMethod(this, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn).call(
         this,
@@ -1653,7 +1651,6 @@ var Mp4Muxer = (() => {
         compactlyCodedChunkTable: []
       });
     }
-    console.log("AUDIO TRACK ID", __privateGet(this, _trackIdCounter));
   };
   _generateMpeg4AudioSpecificConfig = new WeakSet();
   generateMpeg4AudioSpecificConfig_fn = function(objectType, sampleRate, numberOfChannels) {

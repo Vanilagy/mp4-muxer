@@ -325,7 +325,6 @@ export class Muxer<T extends Target> {
 				compactlyCodedChunkTable: []
 			};
 		}
-		console.log("VIDEO TRACK ID", this.#trackIdCounter);
 
 		if (this.#options.audio) {
 			// For the case that we don't get any further decoder details, we can still make a pretty educated guess:
@@ -362,7 +361,6 @@ export class Muxer<T extends Target> {
 				compactlyCodedChunkTable: []
 			};
 		}
-		console.log("AUDIO TRACK ID", this.#trackIdCounter);
 	}
 
 	addDataTrack(contentEncoding = 'binary', mimeFormat = 'application/data') {
@@ -385,7 +383,6 @@ export class Muxer<T extends Target> {
 			lastSample: null,
 			compactlyCodedChunkTable: []
 		});
-		console.log("DATA TRACK ID", this.#trackIdCounter);
 		return this.#trackIdCounter;
 	}
 
