@@ -262,7 +262,7 @@ var tkhd = (track, creationTime) => {
 };
 var mdia = (track, creationTime) => box("mdia", null, [
   mdhd(track, creationTime),
-  hdlr(track.info.type === "video" ? "vide" : "soun"),
+  hdlr(track.info.type === "video" ? "vide" : track.info.type === "audio" ? "soun" : "meta"),
   minf(track)
 ]);
 var mdhd = (track, creationTime) => {
@@ -303,7 +303,7 @@ var hdlr = (componentSubtype) => fullBox("hdlr", 0, 0, [
   // Component name
 ]);
 var minf = (track) => box("minf", null, [
-  track.info.type === "video" ? vmhd() : smhd(),
+  track.info.type === "video" ? vmhd() : track.info.type === "audio" ? smhd() : nmhd(),
   dinf(),
   stbl(track)
 ]);
@@ -323,6 +323,7 @@ var smhd = () => fullBox("smhd", 0, 0, [
   u16(0)
   // Reserved
 ]);
+var nmhd = () => fullBox("nmhd", 0, 0, []);
 var dinf = () => box("dinf", null, [
   dref()
 ]);
@@ -352,10 +353,10 @@ var stsd = (track) => fullBox("stsd", 0, 0, [
   track.info.type === "video" ? videoSampleDescription(
     VIDEO_CODEC_TO_BOX_NAME[track.info.codec],
     track
-  ) : soundSampleDescription(
+  ) : track.info.type === "audio" ? soundSampleDescription(
     AUDIO_CODEC_TO_BOX_NAME[track.info.codec],
     track
-  )
+  ) : mett(track)
 ]);
 var videoSampleDescription = (compressionType, track) => box(compressionType, [
   Array(6).fill(0),
@@ -466,6 +467,12 @@ var soundSampleDescription = (compressionType, track) => box(compressionType, [
 ], [
   AUDIO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
 ]);
+var mett = (track) => {
+  return box("mett", [
+    ascii(track.info.content_encoding, true),
+    ascii(track.info.mime_format, true)
+  ]);
+};
 var esds = (track) => {
   let description = new Uint8Array(track.info.decoderConfig.description);
   return fullBox("esds", 0, 0, [
@@ -1142,13 +1149,13 @@ var SUPPORTED_VIDEO_CODECS2 = ["avc", "hevc", "vp9", "av1"];
 var SUPPORTED_AUDIO_CODECS2 = ["aac", "opus"];
 var TIMESTAMP_OFFSET = 2082844800;
 var FIRST_TIMESTAMP_BEHAVIORS = ["strict", "offset", "cross-track-offset"];
-var _options, _writer, _ftypSize, _mdat, _videoTrack, _audioTrack, _creationTime, _finalizedChunks, _nextFragmentNumber, _videoSampleQueue, _audioSampleQueue, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _computeMoovSizeUpperBound, computeMoovSizeUpperBound_fn, _prepareTracks, prepareTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _createSampleForTrack, createSampleForTrack_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _finalizeCurrentChunk, finalizeCurrentChunk_fn, _finalizeFragment, finalizeFragment_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
+var _options, _writer, _ftypSize, _mdat, _trackIdCounter, _videoTrack, _audioTrack, _dataTracks, _creationTime, _finalizedChunks, _nextFragmentNumber, _videoSampleQueue, _audioSampleQueue, _finalized, _validateOptions, validateOptions_fn, _writeHeader, writeHeader_fn, _computeMoovSizeUpperBound, computeMoovSizeUpperBound_fn, _prepareMediaTracks, prepareMediaTracks_fn, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn, _createSampleForTrack, createSampleForTrack_fn, _addSampleToTrack, addSampleToTrack_fn, _validateTimestamp, validateTimestamp_fn, _finalizeCurrentChunk, finalizeCurrentChunk_fn, _finalizeFragment, finalizeFragment_fn, _maybeFlushStreamingTargetWriter, maybeFlushStreamingTargetWriter_fn, _ensureNotFinalized, ensureNotFinalized_fn;
 var Muxer = class {
   constructor(options) {
     __privateAdd(this, _validateOptions);
     __privateAdd(this, _writeHeader);
     __privateAdd(this, _computeMoovSizeUpperBound);
-    __privateAdd(this, _prepareTracks);
+    __privateAdd(this, _prepareMediaTracks);
     // https://wiki.multimedia.cx/index.php/MPEG-4_Audio
     __privateAdd(this, _generateMpeg4AudioSpecificConfig);
     __privateAdd(this, _createSampleForTrack);
@@ -1162,8 +1169,10 @@ var Muxer = class {
     __privateAdd(this, _writer, void 0);
     __privateAdd(this, _ftypSize, void 0);
     __privateAdd(this, _mdat, void 0);
+    __privateAdd(this, _trackIdCounter, 0);
     __privateAdd(this, _videoTrack, null);
     __privateAdd(this, _audioTrack, null);
+    __privateAdd(this, _dataTracks, []);
     __privateAdd(this, _creationTime, Math.floor(Date.now() / 1e3) + TIMESTAMP_OFFSET);
     __privateAdd(this, _finalizedChunks, []);
     // Fields for fragmented MP4:
@@ -1189,8 +1198,31 @@ var Muxer = class {
     } else {
       throw new Error(`Invalid target: ${options.target}`);
     }
-    __privateMethod(this, _prepareTracks, prepareTracks_fn).call(this);
+    __privateMethod(this, _prepareMediaTracks, prepareMediaTracks_fn).call(this);
     __privateMethod(this, _writeHeader, writeHeader_fn).call(this);
+  }
+  addDataTrack(contentEncoding = "binary", mimeFormat = "application/data") {
+    __privateGet(this, _dataTracks).push({
+      id: __privateWrapper(this, _trackIdCounter)._++,
+      info: {
+        type: "data",
+        content_encoding: contentEncoding,
+        mime_format: mimeFormat
+      },
+      timescale: 1e-3,
+      samples: [],
+      finalizedChunks: [],
+      currentChunk: null,
+      firstDecodeTimestamp: void 0,
+      lastDecodeTimestamp: -1,
+      timeToSampleTable: [],
+      compositionTimeOffsetTable: [],
+      lastTimescaleUnits: null,
+      lastSample: null,
+      compactlyCodedChunkTable: []
+    });
+    console.log("DATA TRACK ID", __privateGet(this, _trackIdCounter));
+    return __privateGet(this, _trackIdCounter);
   }
   addVideoChunk(sample, meta, timestamp, compositionTimeOffset) {
     if (!(sample instanceof EncodedVideoChunk)) {
@@ -1315,11 +1347,34 @@ var Muxer = class {
       __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _audioTrack), audioSample);
     }
   }
+  addDataChunkRaw(trackId, data, type, timestamp, duration) {
+    if (!Number.isInteger(trackId) || trackId < 0 || trackId > __privateGet(this, _trackIdCounter)) {
+      throw new TypeError("addDataChunkRaw's trackId argument must be an id as returned by addDataTrack.");
+    }
+    if (type !== "key" && type !== "delta") {
+      throw new TypeError("addDataChunkRaw's type argument must be either 'key' or 'delta'.");
+    }
+    if (!Number.isFinite(timestamp) || timestamp < 0) {
+      throw new TypeError("addDataChunkRaw's timestamp argument must be a non-negative real number.");
+    }
+    if (!Number.isFinite(duration) || duration < 0) {
+      throw new TypeError("addDataChunkRaw's duration argument must be a non-negative real number.");
+    }
+    __privateMethod(this, _ensureNotFinalized, ensureNotFinalized_fn).call(this);
+    const trackOffset = 1 + (__privateGet(this, _options).audio ? 1 : 0) + (__privateGet(this, _options).video ? 1 : 0);
+    const trackIndex = trackId - trackOffset;
+    if (typeof __privateGet(this, _options).fastStart === "object" && __privateGet(this, _dataTracks)[trackIndex].samples.length === __privateGet(this, _options).fastStart.expectedDataChunks) {
+      throw new Error(`Cannot add more data chunks than specified in 'fastStart' (${__privateGet(this, _options).fastStart.expectedDataChunks}).`);
+    }
+    let dataSample = __privateMethod(this, _createSampleForTrack, createSampleForTrack_fn).call(this, __privateGet(this, _dataTracks)[trackIndex], data, type, timestamp, duration);
+    __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _dataTracks)[trackIndex], dataSample);
+  }
   /** Finalizes the file, making it ready for use. Must be called after all video and audio chunks have been added. */
   finalize() {
     if (__privateGet(this, _finalized)) {
       throw new Error("Cannot finalize a muxer more than once.");
     }
+    let tracks = [__privateGet(this, _videoTrack), __privateGet(this, _audioTrack), ...__privateGet(this, _dataTracks)].filter(Boolean);
     if (__privateGet(this, _options).fastStart === "fragmented") {
       for (let videoSample of __privateGet(this, _videoSampleQueue))
         __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _videoTrack), videoSample);
@@ -1327,12 +1382,10 @@ var Muxer = class {
         __privateMethod(this, _addSampleToTrack, addSampleToTrack_fn).call(this, __privateGet(this, _audioTrack), audioSample);
       __privateMethod(this, _finalizeFragment, finalizeFragment_fn).call(this, false);
     } else {
-      if (__privateGet(this, _videoTrack))
-        __privateMethod(this, _finalizeCurrentChunk, finalizeCurrentChunk_fn).call(this, __privateGet(this, _videoTrack));
-      if (__privateGet(this, _audioTrack))
-        __privateMethod(this, _finalizeCurrentChunk, finalizeCurrentChunk_fn).call(this, __privateGet(this, _audioTrack));
+      for (let track of tracks) {
+        __privateMethod(this, _finalizeCurrentChunk, finalizeCurrentChunk_fn).call(this, track);
+      }
     }
-    let tracks = [__privateGet(this, _videoTrack), __privateGet(this, _audioTrack)].filter(Boolean);
     if (__privateGet(this, _options).fastStart === "in-memory") {
       let mdatSize;
       for (let i = 0; i < 2; i++) {
@@ -1394,8 +1447,10 @@ _options = new WeakMap();
 _writer = new WeakMap();
 _ftypSize = new WeakMap();
 _mdat = new WeakMap();
+_trackIdCounter = new WeakMap();
 _videoTrack = new WeakMap();
 _audioTrack = new WeakMap();
+_dataTracks = new WeakMap();
 _creationTime = new WeakMap();
 _finalizedChunks = new WeakMap();
 _nextFragmentNumber = new WeakMap();
@@ -1507,11 +1562,11 @@ computeMoovSizeUpperBound_fn = function() {
   upperBound += 4096;
   return upperBound;
 };
-_prepareTracks = new WeakSet();
-prepareTracks_fn = function() {
+_prepareMediaTracks = new WeakSet();
+prepareMediaTracks_fn = function() {
   if (__privateGet(this, _options).video) {
     __privateSet(this, _videoTrack, {
-      id: 1,
+      id: __privateWrapper(this, _trackIdCounter)._++,
       info: {
         type: "video",
         codec: __privateGet(this, _options).video.codec,
@@ -1534,6 +1589,7 @@ prepareTracks_fn = function() {
       compactlyCodedChunkTable: []
     });
   }
+  console.log("VIDEO TRACK ID", __privateGet(this, _trackIdCounter));
   if (__privateGet(this, _options).audio) {
     let guessedCodecPrivate = __privateMethod(this, _generateMpeg4AudioSpecificConfig, generateMpeg4AudioSpecificConfig_fn).call(
       this,
@@ -1543,7 +1599,7 @@ prepareTracks_fn = function() {
       __privateGet(this, _options).audio.numberOfChannels
     );
     __privateSet(this, _audioTrack, {
-      id: __privateGet(this, _options).video ? 2 : 1,
+      id: __privateWrapper(this, _trackIdCounter)._++,
       info: {
         type: "audio",
         codec: __privateGet(this, _options).audio.codec,
@@ -1569,6 +1625,7 @@ prepareTracks_fn = function() {
       compactlyCodedChunkTable: []
     });
   }
+  console.log("AUDIO TRACK ID", __privateGet(this, _trackIdCounter));
 };
 _generateMpeg4AudioSpecificConfig = new WeakSet();
 generateMpeg4AudioSpecificConfig_fn = function(objectType, sampleRate, numberOfChannels) {
@@ -1759,7 +1816,7 @@ finalizeFragment_fn = function(flushStreamingWriter = true) {
   if (__privateGet(this, _options).fastStart !== "fragmented") {
     throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");
   }
-  let tracks = [__privateGet(this, _videoTrack), __privateGet(this, _audioTrack)].filter((track) => track && track.currentChunk);
+  let tracks = [__privateGet(this, _videoTrack), __privateGet(this, _audioTrack), ...__privateGet(this, _dataTracks)].filter((track) => track && track.currentChunk);
   if (tracks.length === 0)
     return;
   let fragmentNumber = __privateWrapper(this, _nextFragmentNumber)._++;

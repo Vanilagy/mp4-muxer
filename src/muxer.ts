@@ -33,7 +33,6 @@ type Mp4MuxerOptions<T extends Target> =  {
 	target: T,
 	video?: VideoOptions,
 	audio?: AudioOptions,
-	data?: boolean,
 	fastStart: false | 'in-memory' | 'fragmented' | {
 		expectedVideoChunks?: number,
 		expectedAudioChunks?: number
@@ -111,9 +110,10 @@ export class Muxer<T extends Target> {
 	#ftypSize: number;
 	#mdat: Box;
 
+	#trackIdCounter = 0;
 	#videoTrack: Track = null;
 	#audioTrack: Track = null;
-	#dataTrack: Track = null;
+	#dataTracks: Track[] = [];
 	#creationTime = Math.floor(Date.now() / 1000) + TIMESTAMP_OFFSET;
 	#finalizedChunks: Chunk[] = [];
 
@@ -121,7 +121,6 @@ export class Muxer<T extends Target> {
 	#nextFragmentNumber = 1;
 	#videoSampleQueue: Sample[] = [];
 	#audioSampleQueue: Sample[] = [];
-	#dataSampleQueue: Sample[] = [];
 
 	#finalized = false;
 
@@ -151,7 +150,7 @@ export class Muxer<T extends Target> {
 			throw new Error(`Invalid target: ${options.target}`);
 		}
 
-		this.#prepareTracks();
+		this.#prepareMediaTracks();
 		this.#writeHeader();
 	}
 
@@ -299,12 +298,11 @@ export class Muxer<T extends Target> {
 		return upperBound;
 	}
 
-	#prepareTracks() {
-		let trackCounter = 1;
+	#prepareMediaTracks() {
 
 		if (this.#options.video) {
 			this.#videoTrack = {
-				id: trackCounter++,
+				id: this.#trackIdCounter++,
 				info: {
 					type: 'video',
 					codec: this.#options.video.codec,
@@ -327,6 +325,7 @@ export class Muxer<T extends Target> {
 				compactlyCodedChunkTable: []
 			};
 		}
+		console.log("VIDEO TRACK ID", this.#trackIdCounter);
 
 		if (this.#options.audio) {
 			// For the case that we don't get any further decoder details, we can still make a pretty educated guess:
@@ -337,7 +336,7 @@ export class Muxer<T extends Target> {
 			);
 
 			this.#audioTrack = {
-				id: trackCounter++,
+				id: this.#trackIdCounter++,
 				info: {
 					type: 'audio',
 					codec: this.#options.audio.codec,
@@ -363,28 +362,31 @@ export class Muxer<T extends Target> {
 				compactlyCodedChunkTable: []
 			};
 		}
+		console.log("AUDIO TRACK ID", this.#trackIdCounter);
+	}
 
-		if (this.#options.data) {
-			this.#dataTrack = {
-				id: trackCounter++,
-				info: {
-					type: 'data',
-					content_encoding: 'binary',
-					mime_format: 'application/data'
-				},
-				timescale: 0.001,
-				samples: [],
-				finalizedChunks: [],
-				currentChunk: null,
-				firstDecodeTimestamp: undefined,
-				lastDecodeTimestamp: -1,
-				timeToSampleTable: [],
-				compositionTimeOffsetTable: [],
-				lastTimescaleUnits: null,
-				lastSample: null,
-				compactlyCodedChunkTable: []
-			};
-		}
+	addDataTrack(contentEncoding = 'binary', mimeFormat = 'application/data') {
+		this.#dataTracks.push( {
+			id: this.#trackIdCounter++,
+			info: {
+				type: 'data',
+				content_encoding: contentEncoding,
+				mime_format: mimeFormat
+			},
+			timescale: 0.001,
+			samples: [],
+			finalizedChunks: [],
+			currentChunk: null,
+			firstDecodeTimestamp: undefined,
+			lastDecodeTimestamp: -1,
+			timeToSampleTable: [],
+			compositionTimeOffsetTable: [],
+			lastTimescaleUnits: null,
+			lastSample: null,
+			compactlyCodedChunkTable: []
+		});
+		console.log("DATA TRACK ID", this.#trackIdCounter);
+		return this.#trackIdCounter;
 	}
 
 	// https://wiki.multimedia.cx/index.php/MPEG-4_Audio
@@ -591,38 +593,41 @@ export class Muxer<T extends Target> {
 	}
 
 	addDataChunkRaw(
+		trackId: number,
 		data: Uint8Array,
 		type: 'key' | 'delta',
 		timestamp: number,
 		duration: number
 	) {
-		if (!(data instanceof Uint8Array)) {
-			throw new TypeError("addDataChunkRaw's first argument (data) must be an instance of Uint8Array.");
+		if (!Number.isInteger(trackId) || trackId < 0 || trackId > this.#trackIdCounter) {
+			throw new TypeError("addDataChunkRaw's trackId argument must be an id as returned by addDataTrack.");
 		}
 		if (type !== 'key' && type !== 'delta') {
-			throw new TypeError("addDataChunkRaw's second argument (type) must be either 'key' or 'delta'.");
+			throw new TypeError("addDataChunkRaw's type argument must be either 'key' or 'delta'.");
 		}
 		if (!Number.isFinite(timestamp) || timestamp < 0) {
-			throw new TypeError("addDataChunkRaw's third argument (timestamp) must be a non-negative real number.");
+			throw new TypeError("addDataChunkRaw's timestamp argument must be a non-negative real number.");
 		}
 		if (!Number.isFinite(duration) || duration < 0) {
-			throw new TypeError("addDataChunkRaw's fourth argument (duration) must be a non-negative real number.");
+			throw new TypeError("addDataChunkRaw's duration argument must be a non-negative real number.");
 		}
 
 		this.#ensureNotFinalized();
-		if (!this.#options.data) throw new Error('No data track declared.');
+
+		const trackOffset = 1 + (this.#options.audio ? 1 : 0) + (this.#options.video ? 1 : 0);
+		const trackIndex = trackId - trackOffset;
 
 		if (
 			typeof this.#options.fastStart === 'object' &&
-			this.#dataTrack.samples.length === this.#options.fastStart.expectedDataChunks
+			this.#dataTracks[trackIndex].samples.length === this.#options.fastStart.expectedDataChunks
 		) {
 			throw new Error(`Cannot add more data chunks than specified in 'fastStart' (${
 				this.#options.fastStart.expectedDataChunks
 			}).`);
 		}
 
-		let dataSample = this.#createSampleForTrack(this.#dataTrack, data, type, timestamp, duration);
-		this.#addSampleToTrack(this.#dataTrack, dataSample);
+		let dataSample = this.#createSampleForTrack(this.#dataTracks[trackIndex], data, type, timestamp, duration);
+		this.#addSampleToTrack(this.#dataTracks[trackIndex], dataSample);
 	}
 
 	#createSampleForTrack(
@@ -850,7 +855,7 @@ export class Muxer<T extends Target> {
 			throw new Error("Can't finalize a fragment unless 'fastStart' is set to 'fragmented'.");
 		}
 
-		let tracks = [this.#videoTrack, this.#audioTrack, this.#dataTrack].filter((track) =>
+		let tracks = [this.#videoTrack, this.#audioTrack, ...this.#dataTracks].filter((track) =>
 			track && track.currentChunk);
 		if (tracks.length === 0) return;
 
@@ -937,19 +942,18 @@ export class Muxer<T extends Target> {
 			throw new Error('Cannot finalize a muxer more than once.');
 		}
 
+		let tracks = [this.#videoTrack, this.#audioTrack, ...this.#dataTracks].filter(Boolean);
+
 		if (this.#options.fastStart === 'fragmented') {
 			for (let videoSample of this.#videoSampleQueue) this.#addSampleToTrack(this.#videoTrack, videoSample);
 			for (let audioSample of this.#audioSampleQueue) this.#addSampleToTrack(this.#audioTrack, audioSample);
-			for (let dataSample of this.#dataSampleQueue) this.#addSampleToTrack(this.#dataTrack, dataSample);
 
 			this.#finalizeFragment(false); // Don't flush the last fragment as we will flush it with the mfra box soon
 		} else {
-			if (this.#videoTrack) this.#finalizeCurrentChunk(this.#videoTrack);
-			if (this.#audioTrack) this.#finalizeCurrentChunk(this.#audioTrack);
-			if (this.#dataTrack) this.#finalizeCurrentChunk(this.#dataTrack);
+			for (let track of tracks) {
+				this.#finalizeCurrentChunk(track);
+			}
 		}
-
-		let tracks = [this.#videoTrack, this.#audioTrack, this.#dataTrack].filter(Boolean);
 
 		if (this.#options.fastStart === 'in-memory') {
 			let mdatSize: number;
