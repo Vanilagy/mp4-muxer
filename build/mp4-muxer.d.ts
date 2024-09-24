@@ -101,10 +101,13 @@ declare type MuxerOptions<T extends Target> = {
 	firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
 };
 
-declare type Target = ArrayBufferTarget | StreamTarget | FileSystemWritableFileStreamTarget;
+declare const isTarget: unique symbol;
+declare abstract class Target {
+	[isTarget]: true;
+}
 
 /** The file data will be written into a single large buffer, which is then stored in `buffer` upon finalization.. */
-declare class ArrayBufferTarget {
+declare class ArrayBufferTarget extends Target {
 	buffer: ArrayBuffer;
 }
 
@@ -116,7 +119,7 @@ declare class ArrayBufferTarget {
  * once it has reached sufficient size, using a default chunk size of 16 MiB. This is useful for reducing the total
  * amount of writes, at the cost of latency.
  */
-declare class StreamTarget {
+declare class StreamTarget extends Target {
 	constructor(options: {
 		onData?: (data: Uint8Array, position: number) => void,
 		chunked?: boolean,
@@ -129,7 +132,7 @@ declare class StreamTarget {
  * library with the File System Access API. Writing the file directly to disk as it's being created comes with many
  * benefits, such as creating files way larger than the available RAM.
  */
-declare class FileSystemWritableFileStreamTarget {
+declare class FileSystemWritableFileStreamTarget extends Target {
 	constructor(
 		stream: FileSystemWritableFileStream,
 		options?: { chunkSize?: number }

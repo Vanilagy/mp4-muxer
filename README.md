@@ -19,7 +19,7 @@ the sister library to mp4-muxer.
 > Consider [donating](https://ko-fi.com/vanilagy) if you've found this library useful and wish to support it ❤️
 
 ## Quick start
-The following is an example for a common usage of this library:
+The following is an example of a common usage of this library:
 ```js
 import { Muxer, ArrayBufferTarget } from 'mp4-muxer';
 
@@ -55,7 +55,7 @@ let { buffer } = muxer.target; // Buffer contains final MP4 file
 ## Motivation
 After [webm-muxer](https://github.com/Vanilagy/webm-muxer) gained traction for its ease of use and integration with the
 WebCodecs API, this library was created to now also allow the creation of MP4 files while maintaining the same DX.
-While WebM is a more modern format, MP4 is an established standard and supported on way more devices.
+While WebM is a more modern format, MP4 is an established standard and is supported on more devices.
 
 ## Installation
 Using NPM, simply install this package using
@@ -153,7 +153,7 @@ This option specifies where the data created by the muxer will be written. The o
     respect this argument**.
     
     When using `chunked: true`, data created by the muxer will first be accumulated and only written out once it has
-    reached sufficient size. This is useful for reducing the total amount of writes, at the cost of latency. It using a
+    reached sufficient size. This is useful for reducing the total amount of writes, at the cost of latency. It uses a
     default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the desired byte length.
 
     If you want to use this target for *live-streaming*, i.e. playback before muxing has finished, you also need to set
@@ -247,7 +247,7 @@ set explicitly:
 - Use `'offset'` to offset the timestamp of each track by that track's first chunk's timestamp. This way, it
 starts at 0.
 - Use `'cross-track-offset'` to offset the timestamp of each track by the _minimum of all tracks' first chunk timestamp_.
-This works like `'offset'`, but should be used when the all tracks use the same clock.
+This works like `'offset'`, but it should be used when all tracks use the same clock.
 
 ### Muxing media chunks
 Then, with VideoEncoder and AudioEncoder set up, send encoded chunks to the muxer using the following methods:
@@ -335,7 +335,7 @@ for streaming, while remaining cheap to write even for long files. However, you 
     audio afterward, the multiplexer will have to hold all those video frames in memory until the audio chunks start
     coming in. This might lead to memory exhaustion should your video be very long. When there is only one media track,
     this issue does not arise. So, when muxing a multimedia file, make sure it is somewhat limited in size or the chunks
-    are encoded in a somewhat interleaved way (like is the case for live media). This will keep memory usage at a
+    are encoded in a somewhat interleaved way (as is the case for live media). This will keep memory usage at a
     constant low.
 - **Video key frame frequency:**
     Every track's first sample in a fragment must be a key frame in order to be able to play said fragment without the
