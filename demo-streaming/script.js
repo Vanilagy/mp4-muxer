@@ -54,7 +54,8 @@ const startRecording = async () => {
 	// Create an MP4 muxer with a video track and maybe an audio track
 	muxer = new Mp4Muxer.Muxer({
 		target: new Mp4Muxer.StreamTarget({
-			onData: buffer => sourceBuffer.appendBuffer(buffer)
+			// Because the file is fragmented here, the buffers are contiguous and the position argument can be ignored
+			onData: (buffer, _) => sourceBuffer.appendBuffer(buffer)
 		}),
 
 		video: {
