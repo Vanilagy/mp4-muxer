@@ -49,7 +49,8 @@ const startRecording = async () => {
 
 	endRecordingButton.style.display = 'block';
 
-	let audioSampleRate = audioTrack?.getCapabilities().sampleRate.max;
+	let audioSampleRate = audioTrack?.getSettings().sampleRate;
+	let audioNumberOfChannels = audioTrack?.getSettings().channelCount;
 
 	// Create an MP4 muxer with a video track and maybe an audio track
 	muxer = new Mp4Muxer.Muxer({
@@ -66,7 +67,7 @@ const startRecording = async () => {
 		audio: audioTrack ? {
 			codec: 'aac',
 			sampleRate: audioSampleRate,
-			numberOfChannels: 1
+			numberOfChannels: audioNumberOfChannels
 		} : undefined,
 
 		// Puts metadata to the start of the file. Since we're using ArrayBufferTarget anyway, this makes no difference
@@ -95,7 +96,7 @@ const startRecording = async () => {
 		});
 		audioEncoder.configure({
 			codec: 'mp4a.40.2',
-			numberOfChannels: 1,
+			numberOfChannels: audioNumberOfChannels,
 			sampleRate: audioSampleRate,
 			bitrate: 128000
 		});
