@@ -220,10 +220,6 @@ declare class Muxer<T extends Target> {
 	finalize(): void;
 }
 
-declare global {
-	let Mp4Muxer: typeof Mp4Muxer;
-}
-
 export {
 	Muxer,
 	MuxerOptions,
