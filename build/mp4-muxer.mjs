@@ -387,7 +387,46 @@ var videoSampleDescription = (compressionType, track) => box(compressionType, [
   i16(65535)
   // Pre-defined
 ], [
-  VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
+  VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track),
+  track.info.decoderConfig.colorSpace ? colr(track) : null
+]);
+var COLOR_PRIMARIES_MAP = {
+  "bt709": 1,
+  // ITU-R BT.709
+  "bt470bg": 5,
+  // ITU-R BT.470BG
+  "smpte170m": 6
+  // ITU-R BT.601 525 - SMPTE 170M
+};
+var TRANSFER_CHARACTERISTICS_MAP = {
+  "bt709": 1,
+  // ITU-R BT.709
+  "smpte170m": 6,
+  // SMPTE 170M
+  "iec61966-2-1": 13
+  // IEC 61966-2-1
+};
+var MATRIX_COEFFICIENTS_MAP = {
+  "rgb": 0,
+  // Identity
+  "bt709": 1,
+  // ITU-R BT.709
+  "bt470bg": 5,
+  // ITU-R BT.470BG
+  "smpte170m": 6
+  // SMPTE 170M
+};
+var colr = (track) => box("colr", [
+  ascii("nclx"),
+  // Colour type
+  u16(COLOR_PRIMARIES_MAP[track.info.decoderConfig.colorSpace.primaries]),
+  // Colour primaries
+  u16(TRANSFER_CHARACTERISTICS_MAP[track.info.decoderConfig.colorSpace.transfer]),
+  // Transfer characteristics
+  u16(MATRIX_COEFFICIENTS_MAP[track.info.decoderConfig.colorSpace.matrix]),
+  // Matrix coefficients
+  u8((track.info.decoderConfig.colorSpace.fullRange ? 1 : 0) << 7)
+  // Full range flag
 ]);
 var avcC = (track) => track.info.decoderConfig && box("avcC", [
   // For AVC, description is an AVCDecoderConfigurationRecord, so nothing else to do here

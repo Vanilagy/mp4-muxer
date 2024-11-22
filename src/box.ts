@@ -329,7 +329,39 @@ export const videoSampleDescription = (
 	u16(0x0018), // Depth
 	i16(0xffff) // Pre-defined
 ], [
-	VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track)
+	VIDEO_CODEC_TO_CONFIGURATION_BOX[track.info.codec](track),
+	track.info.decoderConfig.colorSpace ? colr(track) : null
+]);
+
+// These maps are taken from https://www.matroska.org/technical/elements.html,
+// which references the tables in ITU-T H.273 - they should apply here.
+
+const COLOR_PRIMARIES_MAP: Record<VideoColorPrimaries, number> = {
+	'bt709': 1,     // ITU-R BT.709
+	'bt470bg': 5,   // ITU-R BT.470BG
+	'smpte170m': 6  // ITU-R BT.601 525 - SMPTE 170M
+};
+
+const TRANSFER_CHARACTERISTICS_MAP: Record<VideoTransferCharacteristics, number> = {
+	'bt709': 1,          // ITU-R BT.709
+	'smpte170m': 6,      // SMPTE 170M
+	'iec61966-2-1': 13   // IEC 61966-2-1
+};
+
+const MATRIX_COEFFICIENTS_MAP: Record<VideoMatrixCoefficients, number> = {
+	'rgb': 0,       // Identity
+	'bt709': 1,     // ITU-R BT.709
+	'bt470bg': 5,   // ITU-R BT.470BG
+	'smpte170m': 6  // SMPTE 170M
+};
+
+/** Colour Information Box: Specifies the colour space of the video. */
+export const colr = (track: VideoTrack) => box('colr', [
+	ascii('nclx'), // Colour type
+	u16(COLOR_PRIMARIES_MAP[track.info.decoderConfig.colorSpace.primaries]), // Colour primaries
+	u16(TRANSFER_CHARACTERISTICS_MAP[track.info.decoderConfig.colorSpace.transfer]), // Transfer characteristics
+	u16(MATRIX_COEFFICIENTS_MAP[track.info.decoderConfig.colorSpace.matrix]), // Matrix coefficients
+	u8((track.info.decoderConfig.colorSpace.fullRange ? 1 : 0) << 7) // Full range flag
 ]);
 
 /** AVC Configuration Box: Provides additional information to the decoder. */
