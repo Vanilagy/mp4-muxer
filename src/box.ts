@@ -102,7 +102,7 @@ export const free = (size: number): Box => ({ type: 'free', size });
  */
 export const moov = (tracks: Track[], creationTime: number, fragmented = false) => box('moov', null, [
 	mvhd(creationTime, tracks),
-	...tracks.map(x => trak(x, creationTime)),
+	...tracks.flatMap(x => [trak(x, creationTime), x.info.type === 'video' ? udta(x.info.cover) : null]),
 	fragmented ? mvex(tracks) : null
 ]);
 
@@ -253,6 +253,34 @@ export const smhd = () => fullBox('smhd', 0, 0, [
 	u16(0) // Reserved
 ]);
 
+/** User Data Box: Contains user data like metadata */
+export const udta = (cover?: Uint8Array) => {
+	if (!cover) return null;
+	return box('udta', null, [
+		meta(cover)
+	]);
+};
+
+/** Meta Box: Container for metadata */
+export const meta = (cover: Uint8Array) => fullBox('meta', 0, 0, null, [
+	hdlr('mdir'), // Metadata handler
+	ilst(cover)
+]);
+
+/** iTunes List Box: Contains metadata items */
+export const ilst = (cover: Uint8Array) => box('ilst', null, [
+	covr(cover)
+]);
+
+/** Cover Art Box: Contains the actual image data */
+export const covr = (imageData: Uint8Array) => box('covr', null, [
+	box('data', [
+		u32(0x0D), // Type indicator for JPEG
+		u32(0),    // Locale
+		...imageData  // The actual image data
+	])
+]);
+
 /**
  * Data Information Box: Contains information specifying the data handler component that provides access to the
  * media data. The data handler component uses the Data Information Box to interpret the media's data.
@@ -278,7 +306,7 @@ export const url = () => fullBox('url ', 0, 1); // Self-reference flag enabled
  */
 export const stbl = (track: Track) => {
 	const needsCtts = track.compositionTimeOffsetTable.length > 1 ||
-		track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
+    track.compositionTimeOffsetTable.some((x) => x.sampleCompositionTimeOffset !== 0);
 
 	return box('stbl', null, [
 		stsd(track),
@@ -703,7 +731,7 @@ export const trun = (track: Track) => {
 	let sampleSizePresent = uniqueSampleSizes.size > 1;
 	let sampleFlagsPresent = !firstSampleFlagsPresent && uniqueSampleFlags.size > 1;
 	let sampleCompositionTimeOffsetsPresent =
-		uniqueSampleCompositionTimeOffsets.size > 1 || [...uniqueSampleCompositionTimeOffsets].some(x => x !== 0);
+    uniqueSampleCompositionTimeOffsets.size > 1 || [...uniqueSampleCompositionTimeOffsets].some(x => x !== 0);
 
 	let flags = 0;
 	flags |= 0x0001; // Data offset present
@@ -791,3 +819,5 @@ const AUDIO_CODEC_TO_CONFIGURATION_BOX: Record<SupportedAudioCodec, (track: Audi
 	'aac': esds,
 	'opus': dOps
 };
+
+

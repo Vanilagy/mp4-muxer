@@ -24,7 +24,8 @@ interface VideoOptions {
 	width: number,
 	height: number,
 	rotation?: 0 | 90 | 180 | 270 | TransformationMatrix,
-	frameRate?: number
+	frameRate?: number,
+	cover?:Uint8Array
 }
 
 interface AudioOptions {
@@ -52,7 +53,8 @@ export interface Track {
 		width: number,
 		height: number,
 		rotation: 0 | 90 | 180 | 270 | TransformationMatrix,
-		decoderConfig: VideoDecoderConfig
+		cover?: Uint8Array,
+		decoderConfig: VideoDecoderConfig,
 	} | {
 		type: 'audio',
 		codec: AudioOptions['codec'],
@@ -308,6 +310,7 @@ export class Muxer<T extends Target> {
 					width: this.#options.video.width,
 					height: this.#options.video.height,
 					rotation: this.#options.video.rotation ?? 0,
+					cover: this.#options.video.cover,
 					decoderConfig: null
 				},
 				// The fallback contains many common frame rates as factors
