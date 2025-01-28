@@ -1755,7 +1755,8 @@ var Mp4Muxer = (() => {
       let currentChunkDuration = sample.presentationTimestamp - track.currentChunk.startTimestamp;
       if (__privateGet(this, _options).fastStart === "fragmented") {
         let mostImportantTrack = __privateGet(this, _videoTrack) ?? __privateGet(this, _audioTrack);
-        if (track === mostImportantTrack && sample.type === "key" && currentChunkDuration >= 1) {
+        const chunkDuration = __privateGet(this, _options).fragmentedChunkDuration ?? 1;
+        if (track === mostImportantTrack && sample.type === "key" && currentChunkDuration >= chunkDuration) {
           beginNewChunk = true;
           __privateMethod(this, _finalizeFragment, finalizeFragment_fn).call(this);
         }
