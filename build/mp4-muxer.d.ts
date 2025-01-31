@@ -101,9 +101,9 @@ declare type MuxerOptions<T extends Target> = {
 	firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
 
 	/**
-	 * The duration of each fragmented chunk in seconds. Only applicable when `fastStart` is set to `'fragmented'`.
+	 * The minimum duration of each fragment in seconds. Only applicable when `fastStart` is set to `'fragmented'`.
 	 */
-	fragmentedChunkDuration?: number
+	minFragmentDuration?: number
 };
 
 declare const isTarget: unique symbol;

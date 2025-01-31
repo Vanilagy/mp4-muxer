@@ -113,9 +113,13 @@ interface MuxerOptions {
         | false
         | 'in-memory'
         | 'fragmented'
-        | { expectedVideoChunks?: number, expectedAudioChunks?: number }
+        | { expectedVideoChunks?: number, expectedAudioChunks?: number },
 
-    firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
+    firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset',
+
+    // The minimum duration of each fragment in seconds. Only applicable when 
+    // `fastStart` is set to `'fragmented'`. Default is 1.0.
+    minFragmentDuration?: number
 }
 ```
 Codecs currently supported by this library are AVC/H.264, HEVC/H.265, VP9 and AV1 for video, and AAC and Opus for audio.
@@ -157,7 +161,7 @@ This option specifies where the data created by the muxer will be written. The o
     default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the desired byte length.
 
     If you want to use this target for *live-streaming*, i.e. playback before muxing has finished, you also need to set
-    `fastStart: 'fragmented'`.
+    `fastStart: 'fragmented'`. If implementing live-streaming, also consider setting `minFragmentDuration` to a value that is appropriate for your use case (default value is 1 second). A new fragment is emitted when a keyframe is encountered after the duration of the buffered data has reached `minFragmentDuration` seconds.
 
     Usage example:
     ```js
