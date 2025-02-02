@@ -42,7 +42,7 @@ type Mp4MuxerOptions<T extends Target> =  {
 		expectedAudioChunks?: number
 	},
 	firstTimestampBehavior?: FirstTimestampBehavior,
-	fragmentedChunkDuration?: number
+	minFragmentDuration?: number
 };
 
 export interface Track {
@@ -239,6 +239,13 @@ export class Muxer<T extends Target> {
 			}
 		} else if (![false, 'in-memory', 'fragmented'].includes(options.fastStart)) {
 			throw new TypeError(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
+		}
+
+		if (
+			options.minFragmentDuration !== undefined
+			&& (!Number.isFinite(options.minFragmentDuration) || options.minFragmentDuration < 0)
+		) {
+			throw new TypeError(`'minFragmentDuration' must be a non-negative number.`);
 		}
 	}
 
@@ -682,7 +689,7 @@ export class Muxer<T extends Target> {
 
 			if (this.#options.fastStart === 'fragmented') {
 				let mostImportantTrack = this.#videoTrack ?? this.#audioTrack;
-				const chunkDuration = this.#options.fragmentedChunkDuration ?? 1.0;
+				const chunkDuration = this.#options.minFragmentDuration ?? 1;
 				if (track === mostImportantTrack && sample.type === 'key' && currentChunkDuration >= chunkDuration) {
 					beginNewChunk = true;
 					this.#finalizeFragment();

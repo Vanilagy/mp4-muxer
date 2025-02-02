@@ -118,7 +118,7 @@ interface MuxerOptions {
     firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset',
 
     // The minimum duration of each fragment in seconds. Only applicable when 
-    // `fastStart` is set to `'fragmented'`. Default is 1.0.
+    // `fastStart` is set to `'fragmented'`. Default is 1.
     minFragmentDuration?: number
 }
 ```
@@ -161,7 +161,9 @@ This option specifies where the data created by the muxer will be written. The o
     default chunk size of 16 MiB, which can be overridden by manually setting `chunkSize` to the desired byte length.
 
     If you want to use this target for *live-streaming*, i.e. playback before muxing has finished, you also need to set
-    `fastStart: 'fragmented'`. If implementing live-streaming, also consider setting `minFragmentDuration` to a value that is appropriate for your use case (default value is 1 second). A new fragment is emitted when a keyframe is encountered after the duration of the buffered data has reached `minFragmentDuration` seconds.
+    `fastStart: 'fragmented'`. Also consider setting `minFragmentDuration` to a value that is appropriate for your use
+    case and latency requirements (default value is 1 second). A new fragment is emitted when a keyframe is encountered
+    after the duration of the buffered data has reached `minFragmentDuration` seconds.
 
     Usage example:
     ```js

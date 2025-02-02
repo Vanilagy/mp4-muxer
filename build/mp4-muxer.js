@@ -1545,13 +1545,8 @@ var Mp4Muxer = (() => {
     } else if (![false, "in-memory", "fragmented"].includes(options.fastStart)) {
       throw new TypeError(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
     }
-    if (options.minFragmentDuration) {
-      if (typeof options.minFragmentDuration !== "number" || options.minFragmentDuration < 0) {
-        throw new TypeError(`'minFragmentDuration' must be a non-negative number.`);
-      }
-      if (options.fastStart !== "fragmented") {
-        throw new TypeError(`'minFragmentDuration' can only be set when 'fastStart' is set to 'fragmented'.`);
-      }
+    if (options.minFragmentDuration !== void 0 && (!Number.isFinite(options.minFragmentDuration) || options.minFragmentDuration < 0)) {
+      throw new TypeError(`'minFragmentDuration' must be a non-negative number.`);
     }
   };
   _writeHeader = new WeakSet();
