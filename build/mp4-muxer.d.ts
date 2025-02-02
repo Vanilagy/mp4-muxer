@@ -99,6 +99,11 @@ declare type MuxerOptions<T extends Target> = {
 	 * earliest. This is designed for cases when both tracks' timestamps come from the same clock source.
 	 */
 	firstTimestampBehavior?: 'strict' | 'offset' | 'cross-track-offset'
+
+	/**
+	 * The minimum duration of each fragment in seconds. Only applicable when `fastStart` is set to `'fragmented'`.
+	 */
+	minFragmentDuration?: number
 };
 
 declare const isTarget: unique symbol;

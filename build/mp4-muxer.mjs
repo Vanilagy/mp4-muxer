@@ -1517,6 +1517,14 @@ validateOptions_fn = function(options) {
   } else if (![false, "in-memory", "fragmented"].includes(options.fastStart)) {
     throw new TypeError(`'fastStart' option must be false, 'in-memory', 'fragmented' or an object.`);
   }
+  if (options.minFragmentDuration) {
+    if (typeof options.minFragmentDuration !== "number" || options.minFragmentDuration < 0) {
+      throw new TypeError(`'minFragmentDuration' must be a non-negative number.`);
+    }
+    if (options.fastStart !== "fragmented") {
+      throw new TypeError(`'minFragmentDuration' can only be set when 'fastStart' is set to 'fragmented'.`);
+    }
+  }
 };
 _writeHeader = new WeakSet();
 writeHeader_fn = function() {
@@ -1727,7 +1735,8 @@ addSampleToTrack_fn = function(track, sample) {
     let currentChunkDuration = sample.presentationTimestamp - track.currentChunk.startTimestamp;
     if (__privateGet(this, _options).fastStart === "fragmented") {
       let mostImportantTrack = __privateGet(this, _videoTrack) ?? __privateGet(this, _audioTrack);
-      if (track === mostImportantTrack && sample.type === "key" && currentChunkDuration >= 1) {
+      const chunkDuration = __privateGet(this, _options).minFragmentDuration ?? 1;
+      if (track === mostImportantTrack && sample.type === "key" && currentChunkDuration >= chunkDuration) {
         beginNewChunk = true;
         __privateMethod(this, _finalizeFragment, finalizeFragment_fn).call(this);
       }

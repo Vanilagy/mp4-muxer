@@ -41,7 +41,8 @@ type Mp4MuxerOptions<T extends Target> =  {
 		expectedVideoChunks?: number,
 		expectedAudioChunks?: number
 	},
-	firstTimestampBehavior?: FirstTimestampBehavior
+	firstTimestampBehavior?: FirstTimestampBehavior,
+	fragmentedChunkDuration?: number
 };
 
 export interface Track {
@@ -681,7 +682,8 @@ export class Muxer<T extends Target> {
 
 			if (this.#options.fastStart === 'fragmented') {
 				let mostImportantTrack = this.#videoTrack ?? this.#audioTrack;
-				if (track === mostImportantTrack && sample.type === 'key' && currentChunkDuration >= 1.0) {
+				const chunkDuration = this.#options.fragmentedChunkDuration ?? 1.0;
+				if (track === mostImportantTrack && sample.type === 'key' && currentChunkDuration >= chunkDuration) {
 					beginNewChunk = true;
 					this.#finalizeFragment();
 				}
