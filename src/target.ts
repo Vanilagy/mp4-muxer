@@ -36,8 +36,8 @@ export class StreamTarget extends Target {
 		if (options.chunked !== undefined && typeof options.chunked !== 'boolean') {
 			throw new TypeError('options.chunked, when provided, must be a boolean.');
 		}
-		if (options.chunkSize !== undefined && (!Number.isInteger(options.chunkSize) || options.chunkSize <= 0)) {
-			throw new TypeError('options.chunkSize, when provided, must be a positive integer.');
+		if (options.chunkSize !== undefined && (!Number.isInteger(options.chunkSize) || options.chunkSize < 1024)) {
+			throw new TypeError('options.chunkSize, when provided, must be an integer and not smaller than 1024.');
 		}
 	}
 }

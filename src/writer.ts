@@ -141,9 +141,25 @@ export class ArrayBufferTargetWriter extends Writer {
 	}
 }
 
+const DEFAULT_CHUNK_SIZE = 2**24;
+const MAX_CHUNKS_AT_ONCE = 2;
+
+interface Chunk {
+	start: number,
+	written: ChunkSection[],
+	data: Uint8Array,
+	shouldFlush: boolean
+}
+
+interface ChunkSection {
+	start: number,
+	end: number
+}
+
 /**
  * Writes to a StreamTarget every time it is flushed, sending out all of the new data written since the
- * last flush. This is useful for streaming applications, like piping the output to disk.
+ * last flush. This is useful for streaming applications, like piping the output to disk. In chunked mode, data is first
+ * accumulated in larger chunks before being written to the target.
  */
 export class StreamTargetWriter extends Writer {
 	#target: StreamTarget;
@@ -152,10 +168,20 @@ export class StreamTargetWriter extends Writer {
 		start: number
 	}[] = [];
 
+	#chunked: boolean;
+	#chunkSize: number;
+	/**
+	 * The data is divided up into fixed-size chunks, whose contents are first filled in RAM and then flushed out.
+	 * A chunk is flushed if all of its contents have been written.
+	 */
+	#chunks: Chunk[] = [];
+
 	constructor(target: StreamTarget) {
 		super();
 
 		this.#target = target;
+		this.#chunked = target.options?.chunked ?? false;
+		this.#chunkSize = target.options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
 	}
 
 	write(data: Uint8Array) {
@@ -207,59 +233,15 @@ export class StreamTargetWriter extends Writer {
 				}
 			}
 
-			this.#target.options.onData?.(chunk.data, chunk.start);
+			if (this.#chunked) {
+				this.#writeDataIntoChunks(chunk.data, chunk.start);
+				this.#flushChunks();
+			} else {
+				this.#target.options.onData?.(chunk.data, chunk.start);
+			}
 		}
 
 		this.#sections.length = 0;
-	}
-
-	finalize() {}
-}
-
-const DEFAULT_CHUNK_SIZE = 2**24;
-const MAX_CHUNKS_AT_ONCE = 2;
-
-interface Chunk {
-	start: number,
-	written: ChunkSection[],
-	data: Uint8Array,
-	shouldFlush: boolean
-}
-
-interface ChunkSection {
-	start: number,
-	end: number
-}
-
-/**
- * Writes to a StreamTarget using a chunked approach: Data is first buffered in memory until it reaches a large enough
- * size, which is when it is piped to the StreamTarget. This is helpful for reducing the total amount of writes.
- */
-export class ChunkedStreamTargetWriter extends Writer {
-	#target: StreamTarget;
-	#chunkSize: number;
-	/**
-	 * The data is divided up into fixed-size chunks, whose contents are first filled in RAM and then flushed out.
-	 * A chunk is flushed if all of its contents have been written.
-	 */
-	#chunks: Chunk[] = [];
-
-	constructor(target: StreamTarget) {
-		super();
-
-		this.#target = target;
-		this.#chunkSize = target.options?.chunkSize ?? DEFAULT_CHUNK_SIZE;
-
-		if (!Number.isInteger(this.#chunkSize) || this.#chunkSize < 2**10) {
-			throw new Error('Invalid StreamTarget options: chunkSize must be an integer not smaller than 1024.');
-		}
-	}
-
-	write(data: Uint8Array) {
-		this.#writeDataIntoChunks(data, this.pos);
-		this.#flushChunks();
-
-		this.pos += data.byteLength;
 	}
 
 	#writeDataIntoChunks(data: Uint8Array, position: number) {
@@ -358,7 +340,9 @@ export class ChunkedStreamTargetWriter extends Writer {
 	}
 
 	finalize() {
-		this.#flushChunks(true);
+		if (this.#chunked) {
+			this.#flushChunks(true);
+		}
 	}
 }
 
@@ -366,7 +350,7 @@ export class ChunkedStreamTargetWriter extends Writer {
  * Essentially a wrapper around ChunkedStreamTargetWriter, writing directly to disk using the File System Access API.
  * This is useful for large files, as available RAM is no longer a bottleneck.
  */
-export class FileSystemWritableFileStreamTargetWriter extends ChunkedStreamTargetWriter {
+export class FileSystemWritableFileStreamTargetWriter extends StreamTargetWriter {
 	constructor(target: FileSystemWritableFileStreamTarget) {
 		super(new StreamTarget({
 			onData: (data, position) => target.stream.write({
@@ -374,6 +358,7 @@ export class FileSystemWritableFileStreamTargetWriter extends ChunkedStreamTarge
 				data,
 				position
 			}),
+			chunked: true,
 			chunkSize: target.options?.chunkSize
 		}));
 	}

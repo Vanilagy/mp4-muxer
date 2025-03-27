@@ -5,7 +5,6 @@ import {
 	Writer,
 	ArrayBufferTargetWriter,
 	StreamTargetWriter,
-	ChunkedStreamTargetWriter,
 	FileSystemWritableFileStreamTargetWriter
 } from './writer';
 
@@ -138,9 +137,7 @@ export class Muxer<T extends Target> {
 		if (options.target instanceof ArrayBufferTarget) {
 			this.#writer = new ArrayBufferTargetWriter(options.target);
 		} else if (options.target instanceof StreamTarget) {
-			this.#writer = options.target.options?.chunked
-				? new ChunkedStreamTargetWriter(options.target)
-				: new StreamTargetWriter(options.target);
+			this.#writer =  new StreamTargetWriter(options.target);
 		} else if (options.target instanceof FileSystemWritableFileStreamTarget) {
 			this.#writer = new FileSystemWritableFileStreamTargetWriter(options.target);
 		} else {
