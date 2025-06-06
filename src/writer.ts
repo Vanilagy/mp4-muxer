@@ -347,7 +347,7 @@ export class StreamTargetWriter extends Writer {
 }
 
 /**
- * Essentially a wrapper around ChunkedStreamTargetWriter, writing directly to disk using the File System Access API.
+ * Essentially a wrapper around a chunked StreamTargetWriter, writing directly to disk using the File System Access API.
  * This is useful for large files, as available RAM is no longer a bottleneck.
  */
 export class FileSystemWritableFileStreamTargetWriter extends StreamTargetWriter {

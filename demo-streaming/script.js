@@ -70,8 +70,7 @@ const startRecording = async () => {
 			numberOfChannels: audioNumberOfChannels
 		} : undefined,
 
-		// Puts metadata to the start of the file. Since we're using ArrayBufferTarget anyway, this makes no difference
-		// to memory footprint.
+		// This setting ensures the MP4 file is fragmented, suitable for streaming in a <video> element
 		fastStart: 'fragmented',
 
 		// Because we're directly pumping a MediaStreamTrack's data into it, which doesn't start at timestamp = 0
