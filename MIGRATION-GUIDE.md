@@ -156,7 +156,7 @@ The option `compositionTimeOffset` no longer exists. Instead, the timestamps of 
 
 ### Object in `fastStart`
 
-Removed.
+Use `'reserve'` for the Fast Start option: https://mediabunny.dev/api/IsobmffOutputFormatOptions#faststart
 
 ### Transformation matrix for video rotation
 
